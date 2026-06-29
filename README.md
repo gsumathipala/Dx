@@ -1,4 +1,4 @@
-# PathMaster Dx — Clinical Laboratory Information System
+# Dx — Clinical Laboratory Information System
 
 A full-featured, open-source Laboratory Information System (LIS) built with **Next.js 16** and **SQLite**. Covers the complete clinical laboratory workflow — from patient registration and order entry through specimen tracking, result entry, two-tier clinical validation, reporting, and billing.
 
