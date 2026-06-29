@@ -6,7 +6,21 @@ A full-featured, open-source Laboratory Information System (LIS) built with **Ne
 
 ## Screenshots
 
-> Coming soon — run `npm run dev` to explore locally.
+| Login | Dashboard |
+|---|---|
+| ![Login](public/screenshots/01-login.png) | ![Dashboard](public/screenshots/02-dashboard.png) |
+
+| Patient List | Accessioning |
+|---|---|
+| ![Patients](public/screenshots/03-patients.png) | ![Accessioning](public/screenshots/04-accessioning.png) |
+
+| Result Entry | QC Management |
+|---|---|
+| ![Results](public/screenshots/05-results.png) | ![QC](public/screenshots/06-qc.png) |
+
+| Analytics |
+|---|
+| ![Analytics](public/screenshots/07-analytics.png) |
 
 ---
 
