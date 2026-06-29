@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  lis-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: clinical-lis-web
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=file:sqlite_v2.db
+    volumes:
+      # Mount the DB so it persists on host
+      - ./sqlite_v2.db:/app/sqlite_v2.db
+    restart: always
+
+  instrument-server:
+    build:
+      context: ./instrument-server
+      dockerfile: Dockerfile
+    container_name: clinical-lis-middleware
+    ports:
+      - "6000:6000"
+    restart: always
