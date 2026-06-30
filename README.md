@@ -176,3 +176,8 @@ src/
 ## License
 
 MIT — free to use, modify, and distribute.
+
+This project is still in the development phase.
+Collaborators are welcome.
+
+- Saranga Sumathipala
