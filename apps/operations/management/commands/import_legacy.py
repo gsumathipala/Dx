@@ -106,6 +106,7 @@ class Command(BaseCommand):
         self.counts = {}
         self.problems = []
         self.dry_run = options["dry_run"]
+        self.verbosity = options.get("verbosity", 1)
         # Legacy id -> imported instance, so foreign keys resolve even when a
         # record already existed locally under a different surrogate id.
         self.ids: dict[str, dict[str, object]] = {}
@@ -165,6 +166,7 @@ class Command(BaseCommand):
         if instance is None and legacy_id:
             instance = model.objects.filter(pk=legacy_id).first()
 
+        created = instance is None
         if instance is None:
             fields = {**natural, **defaults}
             if legacy_id and not model.objects.filter(pk=legacy_id).exists():
@@ -177,6 +179,7 @@ class Command(BaseCommand):
 
         if legacy_id:
             self.ids.setdefault(kind, {})[legacy_id] = instance
+        self.created = created
         return instance
 
     def _resolve(self, kind: str, legacy_id):
@@ -185,13 +188,15 @@ class Command(BaseCommand):
 
     def _rows(self, connection, table):
         if table not in self.tables:
-            self.stdout.write(self.style.WARNING(f"  (no {table} table in source)"))
+            if self.verbosity:
+                self.stdout.write(self.style.WARNING(f"  (no {table} table in source)"))
             return []
         return list(connection.execute(f"SELECT * FROM {table}"))
 
     def _track(self, table, count):
         self.counts[table] = count
-        self.stdout.write(f"  {table}: {count}")
+        if self.verbosity:
+            self.stdout.write(f"  {table}: {count}")
 
     def _departments(self, connection):
         from apps.accounts.models import Department
@@ -237,11 +242,22 @@ class Command(BaseCommand):
                     "is_superuser": row["role"] == "admin",
                 },
             )
-            # Legacy bcrypt hashes carry across and are verified by the
-            # compatibility backend; cleartext is never migrated as-is.
-            if password.startswith(("$2a$", "$2b$", "$2y$")):
+            if not self.created:
+                # The account already existed here. Its credentials are left
+                # exactly as they are: importing a legacy password over a live
+                # account could silently replace a strong password with a
+                # weaker one, or hand access back to a revoked credential.
+                self.problems.append(
+                    f"user {row['username']}: account already existed and was updated, "
+                    "but its password was left unchanged (legacy credentials are only "
+                    "applied to accounts this import creates)"
+                )
+            elif password.startswith(("$2a$", "$2b$", "$2y$")):
+                # Legacy bcrypt hashes carry across and are verified by the
+                # compatibility backend.
                 User.objects.filter(pk=user.pk).update(password=password)
             else:
+                # Cleartext is never migrated as a usable password.
                 user.set_unusable_password()
                 user.save(update_fields=["password"])
                 self.problems.append(
@@ -606,6 +622,8 @@ class Command(BaseCommand):
         self._track("settings", count)
 
     def _report(self):
+        if not self.verbosity:
+            return
         total = sum(self.counts.values())
         self.stdout.write("")
         if self.problems:

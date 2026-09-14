@@ -92,6 +92,11 @@ class Command(BaseCommand):
             f"Demo data created. Sign in as any of: "
             f"{', '.join(username for username, *_ in USERS)} — password {DEMO_PASSWORD}"
         ))
+        self.stdout.write(
+            "These accounts share one publicly documented password and exist for "
+            "evaluation only. Delete or disable them before this system holds real "
+            "patient data. Account roles are listed in INSTALL.md."
+        )
 
     # ── Builders ─────────────────────────────────────────────────────────────
 

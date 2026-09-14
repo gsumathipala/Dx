@@ -65,7 +65,11 @@ python manage.py runserver
 
 `seed_demo` creates a working laboratory — users with competency, a test
 catalogue with reference and critical limits, acceptable QC, patients and
-orders at each stage of the workflow. It prints the sign-in credentials.
+orders at each stage of the workflow. It prints the sign-in credentials, which
+are also listed in [INSTALL.md](INSTALL.md#demonstration-sign-in-credentials).
+
+Full setup instructions, the demonstration credentials, troubleshooting and a
+pre-production checklist are in **[INSTALL.md](INSTALL.md)**.
 
 ### Running the audit worker
 
