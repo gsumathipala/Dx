@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Report delivery{% endblock %}
+{% block page_title %}Report delivery{% endblock %}
+{% block content %}
+<div class="stat-grid">
+    <div class="stat {% if pending %}warn{% endif %}"><div class="label">Pending</div><div class="value">{{ pending }}</div></div>
+    <div class="stat {% if failed %}danger{% else %}ok{% endif %}"><div class="label">Failed</div><div class="value">{{ failed }}</div></div>
+</div>
+<div class="card"><div class="card-header"><h3>Email queue</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Created</th><th>Recipient</th><th>Subject</th><th>Status</th><th>Attempts</th><th>Error</th></tr></thead>
+        <tbody>
+        {% for entry in queue %}
+            <tr><td class="nowrap">{{ entry.created_at|date:"Y-m-d H:i" }}</td><td>{{ entry.recipient }}</td>
+                <td>{{ entry.subject }}</td><td>{{ entry.status|status_badge }}</td>
+                <td>{{ entry.attempts }}</td><td class="muted">{{ entry.error|default:"—"|truncatechars:60 }}</td></tr>
+        {% empty %}<tr><td colspan="6" class="empty">Queue is empty.</td></tr>{% endfor %}
+        </tbody></table></div></div>
+<div class="card"><div class="card-header"><h3>Distribution log</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Sent</th><th>Accession</th><th>Method</th><th>Destination</th><th>Status</th></tr></thead>
+        <tbody>
+        {% for log in logs %}
+            <tr><td class="nowrap">{{ log.sent_at|date:"Y-m-d H:i"|default:"—" }}</td>
+                <td class="mono">{{ log.order.accession_number }}</td><td>{{ log.method }}</td>
+                <td class="muted">{{ log.destination|default:"—" }}</td><td>{{ log.status|status_badge }}</td></tr>
+        {% empty %}<tr><td colspan="5" class="empty">Nothing distributed yet.</td></tr>{% endfor %}
+        </tbody></table></div></div>
+{% endblock %}

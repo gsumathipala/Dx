@@ -1,0 +1,10 @@
+{% extends "generic/list.html" %}
+{% block content %}
+<div class="alert alert-info">
+    Competency gating is
+    {% if dx_controls.competency_gating %}<strong>enforced</strong>{% else %}<strong>disabled</strong>{% endif %}.
+    When enforced, staff without a current record for a test cannot technically
+    validate or clinically verify its results.
+</div>
+{{ block.super }}
+{% endblock %}

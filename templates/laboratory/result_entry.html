@@ -1,0 +1,140 @@
+{% extends "base.html" %}
+{% block title %}{{ order.accession_number }}{% endblock %}
+{% block page_title %}Result entry — {{ order.accession_number }}{% endblock %}
+{% block page_subtitle %}
+    <div class="subtitle">
+        {{ order.patient.full_name }} · {{ order.patient.mrn }} ·
+        {{ order.patient.age_display }} {{ order.patient.get_gender_display }} ·
+        {{ order.status }}
+    </div>
+{% endblock %}
+{% block page_actions %}
+    <a class="btn" href="{% url 'patients:detail' order.patient.pk %}">Patient record</a>
+    <a class="btn" href="{% url 'audit:entity_history' entity_type order.pk %}">Audit history</a>
+{% endblock %}
+
+{% block content %}
+{% if critical_values %}
+    <div class="alert alert-error">
+        <strong>Critical value on this order.</strong>
+        {% for item in critical_values %}
+            {{ item.test_code }} {{ item.value }} ({{ item.threshold }}) — {{ item.status }}.
+        {% endfor %}
+        <a href="{% url 'clinical:critical_values' %}">Document notification</a>.
+    </div>
+{% endif %}
+{% if delta_flags %}
+    <div class="alert alert-warning">
+        <strong>Delta check flagged.</strong>
+        {% for flag in delta_flags %}
+            {{ flag.test.code }}: {{ flag.previous_value }} → {{ flag.current_value }}
+            ({{ flag.delta_percent|floatformat:1 }}%).
+        {% endfor %}
+    </div>
+{% endif %}
+
+<form method="post">
+    {% csrf_token %}
+    <div class="card">
+        <div class="card-header"><h3>Results</h3><span class="muted">{{ order.priority }}</span></div>
+        <div class="card-body flush">
+            <table class="data">
+                <thead><tr><th>Test</th><th>Result</th><th>Units</th><th>Reference</th><th>Flag</th><th>Entered by</th></tr></thead>
+                <tbody>
+                {% for test, field in form.result_fields %}
+                    {% with existing=existing|dx_attr:test.id %}
+                    <tr>
+                        <td><strong class="mono">{{ test.code }}</strong><div class="muted">{{ test.name }}</div></td>
+                        <td style="width:180px">{{ field }}
+                            {% for error in field.errors %}<div class="error">{{ error }}</div>{% endfor %}</td>
+                        <td class="muted">{{ test.units|default:"—" }}</td>
+                        <td class="muted nowrap">{{ test.reference_display }}</td>
+                        <td>
+                            {% for result in order.results.all %}
+                                {% if result.test_key == test.id %}
+                                    {% for flag in result.result_flags %}{{ flag|status_badge }}{% endfor %}
+                                {% endif %}
+                            {% endfor %}
+                        </td>
+                        <td class="muted">
+                            {% for result in order.results.all %}
+                                {% if result.test_key == test.id %}{{ result.entered_by|default:"—" }}{% endif %}
+                            {% endfor %}
+                        </td>
+                    </tr>
+                    {% endwith %}
+                {% empty %}
+                    <tr><td colspan="6" class="empty">No tests on this order.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Report comment and authorisation</h3></div>
+        <div class="card-body">
+            <div class="form-row">
+                <div class="field"><label for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>{{ form.notes }}</div>
+                <div class="field"><label for="{{ form.queue.id_for_label }}">{{ form.queue.label }}</label>{{ form.queue }}</div>
+            </div>
+            <div class="form-row">
+                <div class="field">
+                    <label for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
+                    {{ form.password }}
+                    <div class="help">{{ form.password.help_text }}</div>
+                </div>
+                <div class="field"><label for="{{ form.reason.id_for_label }}">{{ form.reason.label }}</label>{{ form.reason }}</div>
+            </div>
+
+            <div class="btn-group">
+                <button class="btn btn-primary" type="submit" name="action" value="">Save results</button>
+                <button class="btn" type="submit" name="action" value="TECHNICAL_VALIDATE">Technically validate</button>
+                <button class="btn" type="submit" name="action" value="CLINICAL_VERIFY">Clinically verify &amp; complete</button>
+            </div>
+            <p class="muted" style="margin:10px 0 0;font-size:12px">
+                Validation applies your electronic signature and is checked against
+                your competency, the current QC status, and the rule that the
+                analyst who entered a result may not verify it.
+            </p>
+        </div>
+    </div>
+</form>
+
+{% if signatures %}
+<div class="card">
+    <div class="card-header"><h3>Signatures on this order</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Type</th><th>Signed by</th><th>When</th><th>Address</th></tr></thead>
+            <tbody>
+            {% for signature in signatures %}
+                <tr><td>{{ signature.get_signature_type_display }}</td><td>{{ signature.signed_by }}</td>
+                    <td class="nowrap">{{ signature.signed_at|date:"Y-m-d H:i:s" }}</td>
+                    <td class="mono">{{ signature.ip_address|default:"—" }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Recent audit events</h3>
+        <a class="btn btn-sm" href="{% url 'audit:entity_history' entity_type order.pk %}">Full history</a></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>When</th><th>User</th><th>Action</th><th>Changed</th></tr></thead>
+            <tbody>
+            {% for event in audit_events %}
+                <tr><td class="nowrap">{{ event.timestamp|date:"Y-m-d H:i:s" }}</td>
+                    <td>{{ event.actor_username }}</td><td>{{ event.action }}</td>
+                    <td class="muted">{{ event.changed_fields|join:", "|truncatechars:60 }}</td></tr>
+            {% empty %}
+                <tr><td colspan="4" class="empty">No events recorded yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

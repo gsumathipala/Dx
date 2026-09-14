@@ -1,0 +1,174 @@
+{% extends "base.html" %}
+{% block title %}Compliance{% endblock %}
+{% block page_title %}Compliance dashboard{% endblock %}
+{% block page_subtitle %}
+    <div class="subtitle">Outstanding regulatory obligations across CLIA, CAP, ISO 15189, 21 CFR Part 11 and HIPAA</div>
+{% endblock %}
+{% block page_actions %}<a class="btn" href="{% url 'audit:integrity' %}">Audit integrity</a>{% endblock %}
+
+{% block content %}
+<div class="stat-grid">
+    <div class="stat {% if capa_overdue %}danger{% elif capa_open %}warn{% else %}ok{% endif %}">
+        <div class="label">Open nonconformances</div><div class="value">{{ capa_open }}</div>
+        <div class="delta">{{ capa_overdue }} overdue</div></div>
+    <div class="stat {% if pt_overdue or pt_unacceptable %}danger{% else %}ok{% endif %}">
+        <div class="label">Proficiency testing</div><div class="value">{{ pt_overdue }}</div>
+        <div class="delta">overdue · {{ pt_unacceptable }} ungraded failures</div></div>
+    <div class="stat {% if competency_expired %}danger{% else %}ok{% endif %}">
+        <div class="label">Expired competency</div><div class="value">{{ competency_expired }}</div>
+        <div class="delta">Staff blocked from reporting</div></div>
+    <div class="stat {% if critical_overdue %}danger{% elif critical_outstanding %}warn{% else %}ok{% endif %}">
+        <div class="label">Critical values</div><div class="value">{{ critical_outstanding }}</div>
+        <div class="delta">{{ critical_overdue }} past escalation</div></div>
+    <div class="stat {% if epi_overdue %}danger{% else %}ok{% endif %}">
+        <div class="label">Notifiable overdue</div><div class="value">{{ epi_overdue }}</div>
+        <div class="delta">Past statutory window</div></div>
+    <div class="stat {% if audit_alerts %}danger{% else %}ok{% endif %}">
+        <div class="label">Audit trail</div><div class="value">{{ audit_events }}</div>
+        <div class="delta">
+            {% if audit_checkpoint %}
+                {% if audit_checkpoint.verified %}verified {{ audit_checkpoint.created_at|date:"Y-m-d H:i" }}
+                {% else %}VERIFICATION FAILED{% endif %}
+            {% else %}not yet verified{% endif %}
+        </div></div>
+    <div class="stat"><div class="label">Method validations</div><div class="value">{{ validations_pending }}</div>
+        <div class="delta">In progress</div></div>
+    <div class="stat"><div class="label">Change requests</div><div class="value">{{ changes_open }}</div>
+        <div class="delta">Not yet verified</div></div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Enforced controls</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Control</th><th>Basis</th><th>State</th></tr></thead>
+            <tbody>
+            <tr><td>QC lockout blocks result release on QC failure</td>
+                <td class="muted">CLIA 42 CFR §493.1256(d)</td>
+                <td>{% if dx_controls.qc_lockout %}<span class="badge badge-ok">Enforced</span>{% else %}<span class="badge badge-danger">Disabled</span>{% endif %}</td></tr>
+            <tr><td>Competency required to validate results</td>
+                <td class="muted">CLIA 42 CFR §493.1451(b)(8)</td>
+                <td>{% if dx_controls.competency_gating %}<span class="badge badge-ok">Enforced</span>{% else %}<span class="badge badge-danger">Disabled</span>{% endif %}</td></tr>
+            <tr><td>Entering analyst cannot verify own result</td>
+                <td class="muted">CLIA 42 CFR §493.1495</td>
+                <td>{% if dx_controls.self_verification_block %}<span class="badge badge-ok">Enforced</span>{% else %}<span class="badge badge-danger">Disabled</span>{% endif %}</td></tr>
+            <tr><td>Password re-entry at electronic signature</td>
+                <td class="muted">21 CFR Part 11 §11.200(a)(1)</td>
+                <td>{% if dx_controls.signature_reauth %}<span class="badge badge-ok">Enforced</span>{% else %}<span class="badge badge-danger">Disabled</span>{% endif %}</td></tr>
+            <tr><td>Audit trail append-only at database level</td>
+                <td class="muted">21 CFR Part 11 §11.10(e)</td>
+                <td><span class="badge badge-ok">Enforced</span></td></tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if qc_failures %}
+<div class="card">
+    <div class="card-header"><h3>QC failures without a corrective action</h3>
+        <a class="btn btn-sm" href="{% url 'compliance:capa_list' %}">Nonconformances</a></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>When</th><th>Test</th><th>Value</th><th>Rules violated</th></tr></thead>
+            <tbody>
+            {% for run in qc_failures %}
+                <tr><td class="nowrap">{{ run.timestamp|date:"Y-m-d H:i" }}</td>
+                    <td class="mono">{{ run.definition.test_code }}</td>
+                    <td>{{ run.value }}</td>
+                    <td>{{ run.result_flags|join:", " }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if competency_expiring %}
+<div class="card">
+    <div class="card-header"><h3>Competency expiring within 30 days</h3>
+        <a class="btn btn-sm" href="{% url 'accounts:competency_list' %}">Manage</a></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Staff member</th><th>Scope</th><th>Expires</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for record in competency_expiring %}
+                <tr><td>{{ record.user.name }}</td>
+                    <td>{% if record.test %}<span class="mono">{{ record.test.code }}</span>{% else %}{{ record.category }}{% endif %}</td>
+                    <td class="nowrap">{{ record.expiry_date }}</td>
+                    <td>{{ record.effective_status|status_badge }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if calibration_overdue %}
+<div class="card">
+    <div class="card-header"><h3>Instruments past calibration date</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Instrument</th><th>Serial</th><th>Calibration due</th></tr></thead>
+            <tbody>
+            {% for item in calibration_overdue %}
+                <tr><td>{{ item.name }}</td><td class="mono">{{ item.serial_number|default:"—" }}</td>
+                    <td class="nowrap"><span class="badge badge-danger">{{ item.next_calibration_date }}</span></td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if documents_review_overdue %}
+<div class="card">
+    <div class="card-header"><h3>Controlled documents past review date</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Document</th><th>Version</th><th>Review due</th></tr></thead>
+            <tbody>
+            {% for doc in documents_review_overdue %}
+                <tr><td>{{ doc.title }}</td><td>{{ doc.version }}</td>
+                    <td class="nowrap"><span class="badge badge-warn">{{ doc.review_due }}</span></td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% if risks_high %}
+<div class="card">
+    <div class="card-header"><h3>High-rated risks</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Reference</th><th>Title</th><th>Score</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for risk in risks_high %}
+                <tr><td class="mono">{{ risk.reference }}</td><td>{{ risk.title }}</td>
+                    <td><span class="badge badge-danger">{{ risk.risk_score }}</span></td>
+                    <td>{{ risk.status }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Record retention schedule</h3>
+        <a class="btn btn-sm" href="{% url 'compliance:retention_schedule' %}">Edit</a></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Record class</th><th>Minimum retention</th><th>Basis</th></tr></thead>
+            <tbody>
+            {% for rule in retention %}
+                <tr><td>{{ rule.get_record_class_display }}</td>
+                    <td>{{ rule.retention_years }} year{{ rule.retention_years|pluralize }}</td>
+                    <td class="muted">{{ rule.citation }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

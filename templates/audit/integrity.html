@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Chain integrity{% endblock %}
+{% block page_title %}Audit chain integrity{% endblock %}
+{% block page_subtitle %}
+    <div class="subtitle">Tamper evidence for the clinical audit trail · 21 CFR Part 11 §11.10(e)</div>
+{% endblock %}
+{% block page_actions %}
+    <form method="post" action="{% url 'audit:run_verification' %}">
+        {% csrf_token %}
+        <button class="btn btn-primary" type="submit">Verify chain now</button>
+    </form>
+{% endblock %}
+
+{% block content %}
+{% if alerts %}
+    <div class="alert alert-error">
+        <strong>{{ alerts|length }} unacknowledged integrity alert{{ alerts|length|pluralize }}.</strong>
+        A verification failure means the trail no longer matches its hashes. This is
+        not cleared by acknowledgement — it must be investigated.
+    </div>
+{% endif %}
+
+<div class="stat-grid">
+    <div class="stat">
+        <div class="label">Events recorded</div>
+        <div class="value">{{ event_count }}</div>
+        <div class="delta">Chain head #{{ head.sequence|default:"—" }}</div>
+    </div>
+    <div class="stat {% if checkpoint.verified %}ok{% else %}danger{% endif %}">
+        <div class="label">Last verification</div>
+        <div class="value">{% if checkpoint %}{% if checkpoint.verified %}Intact{% else %}Failed{% endif %}{% else %}Never{% endif %}</div>
+        <div class="delta">{% if checkpoint %}{{ checkpoint.created_at|date:"Y-m-d H:i" }}{% else %}Run a verification{% endif %}</div>
+    </div>
+    <div class="stat {% if recorder_running %}ok{% else %}danger{% endif %}">
+        <div class="label">Recorder thread</div>
+        <div class="value">{% if recorder_running %}Running{% else %}Stopped{% endif %}</div>
+        <div class="delta">{{ queue_depth }} event{{ queue_depth|pluralize }} queued</div>
+    </div>
+    <div class="stat {% if alerts %}danger{% else %}ok{% endif %}">
+        <div class="label">Open alerts</div>
+        <div class="value">{{ alerts|length }}</div>
+        <div class="delta">Unacknowledged failures</div>
+    </div>
+</div>
+
+{% if head %}
+<div class="card">
+    <div class="card-header"><h3>Chain head</h3></div>
+    <div class="card-body">
+        <div class="field">
+            <label>Event #{{ head.sequence }} — {{ head.timestamp|date:"Y-m-d H:i:s" }}</label>
+            <div class="hash">{{ head.hash }}</div>
+        </div>
+        <p class="muted" style="margin:0">
+            Each event embeds the hash of the one before it. Altering or removing any
+            historic row changes every hash that follows, which verification detects
+            and locates. The table additionally refuses <span class="mono">UPDATE</span>,
+            <span class="mono">DELETE</span> and <span class="mono">TRUNCATE</span> at the
+            database level.
+        </p>
+    </div>
+</div>
+{% endif %}
+
+{% if alerts %}
+<div class="card">
+    <div class="card-header"><h3>Integrity alerts</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Detected</th><th>At sequence</th><th>Detail</th><th></th></tr></thead>
+            <tbody>
+            {% for alert in alerts %}
+                <tr>
+                    <td class="nowrap">{{ alert.detected_at|date:"Y-m-d H:i" }}</td>
+                    <td class="mono">{{ alert.sequence|default:"—" }}</td>
+                    <td>{{ alert.message }}</td>
+                    <td class="right">
+                        <form method="post" action="{% url 'audit:acknowledge' alert.id %}">
+                            {% csrf_token %}
+                            <button class="btn btn-sm" type="submit">Acknowledge</button>
+                        </form>
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Verification checkpoints</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>When</th><th>Head</th><th>Events</th><th>Result</th><th>Detail</th></tr></thead>
+            <tbody>
+            {% for point in checkpoints %}
+                <tr>
+                    <td class="nowrap">{{ point.created_at|date:"Y-m-d H:i:s" }}</td>
+                    <td class="mono">#{{ point.sequence }}</td>
+                    <td>{{ point.event_count }}</td>
+                    <td>
+                        <span class="badge {% if point.verified %}badge-ok{% else %}badge-danger{% endif %}">
+                            {% if point.verified %}Intact{% else %}Failed{% endif %}
+                        </span>
+                    </td>
+                    <td class="muted">{{ point.detail|truncatechars:90 }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="5" class="empty">No verification has been run yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Activity — last 30 days</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Action</th><th class="right">Events</th></tr></thead>
+            <tbody>
+            {% for row in activity %}
+                <tr><td>{{ row.action }}</td><td class="right mono">{{ row.count }}</td></tr>
+            {% empty %}
+                <tr><td colspan="2" class="empty">No activity in the last 30 days.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

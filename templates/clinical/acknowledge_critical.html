@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Document notification{% endblock %}
+{% block page_title %}Document critical value notification{% endblock %}
+
+{% block content %}
+<div class="alert alert-warning">
+    <strong>{{ notification.test_code }} = {{ notification.value }}</strong>
+    ({{ notification.critical_type }}, limit {{ notification.threshold }}) for
+    {{ notification.patient.full_name }} — {{ notification.patient.mrn }},
+    accession {{ notification.order.accession_number }},
+    detected {{ notification.created_at|date:"Y-m-d H:i" }}.
+</div>
+
+<div class="card" style="max-width:640px">
+    <div class="card-header"><h3>Notification record</h3></div>
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+            {% include "partials/form.html" %}
+            <button class="btn btn-primary" type="submit">Record notification</button>
+            <a class="btn" href="{% url 'clinical:critical_values' %}">Cancel</a>
+        </form>
+        <p class="muted" style="margin:14px 0 0;font-size:12px">
+            Read-back confirmation is required: the person receiving the result
+            must repeat it back so a mishearing cannot go undetected.
+        </p>
+    </div>
+</div>
+{% endblock %}

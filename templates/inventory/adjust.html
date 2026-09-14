@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Adjust stock{% endblock %}
+{% block page_title %}Adjust stock — {{ item.name }}{% endblock %}
+{% block page_subtitle %}<div class="subtitle">Currently {{ item.quantity }} {{ item.unit }} · threshold {{ item.min_threshold }}</div>{% endblock %}
+{% block content %}
+<div class="card" style="max-width:520px"><div class="card-body">
+    <form method="post">{% csrf_token %}{% include "partials/form.html" %}
+        <div class="btn-group"><button class="btn btn-primary" type="submit">Record movement</button>
+        <a class="btn" href="{% url 'inventory:list' %}">Cancel</a></div></form>
+</div></div>
+<div class="card"><div class="card-header"><h3>Recent movements</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>When</th><th>Change</th><th>Balance after</th><th>Reason</th><th>By</th></tr></thead>
+        <tbody>
+        {% for entry in transactions %}
+            <tr><td class="nowrap">{{ entry.timestamp|date:"Y-m-d H:i" }}</td>
+                <td><strong>{{ entry.change }}</strong></td><td>{{ entry.balance_after|default:"—" }}</td>
+                <td>{{ entry.reason }}</td><td>{{ entry.user_id }}</td></tr>
+        {% empty %}<tr><td colspan="5" class="empty">No movements recorded.</td></tr>{% endfor %}
+        </tbody></table></div></div>
+{% endblock %}

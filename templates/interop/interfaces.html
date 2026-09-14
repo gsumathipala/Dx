@@ -1,0 +1,5 @@
+{% extends "generic/list.html" %}
+{% block content %}
+<div class="alert alert-info">An enabled interface with no traffic for over an hour is flagged as stale — instrument connections fail silently otherwise.</div>
+{{ block.super }}
+{% endblock %}

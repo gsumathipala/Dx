@@ -1,25 +1,71 @@
-version: '3.8'
-
 services:
-  lis-app:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    container_name: clinical-lis-web
-    ports:
-      - "3000:3000"
+  db:
+    image: postgres:17-alpine
     environment:
-      - DATABASE_URL=file:sqlite_v2.db
+      POSTGRES_DB: ${POSTGRES_DB:-dx}
+      POSTGRES_USER: ${POSTGRES_USER:-dx}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-dx}
     volumes:
-      # Mount the DB so it persists on host
-      - ./sqlite_v2.db:/app/sqlite_v2.db
-    restart: always
+      - dx-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-dx} -d ${POSTGRES_DB:-dx}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
-  instrument-server:
-    build:
-      context: ./instrument-server
-      dockerfile: Dockerfile
-    container_name: clinical-lis-middleware
-    ports:
-      - "6000:6000"
-    restart: always
+  web:
+    build: .
+    command: >
+      sh -c "python manage.py migrate --noinput &&
+             gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 4 --threads 2 --access-logfile -"
+    environment:
+      POSTGRES_HOST: db
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-False}"
+      DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY}"
+      DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS:-localhost,127.0.0.1}"
+      INSTRUMENT_INGEST_TOKEN: "${INSTRUMENT_INGEST_TOKEN:?set INSTRUMENT_INGEST_TOKEN}"
+      AUDIT_SPOOL_FILE: /var/lib/dx/audit-spool.jsonl
+    env_file: [.env]
+    volumes:
+      - dx-spool:/var/lib/dx
+      - dx-media:/app/media
+    ports: ["8000:8000"]
+    depends_on:
+      db: {condition: service_healthy}
+
+  # The persistent audit recorder: replays spooled events and re-verifies the
+  # hash chain on a schedule, independently of request traffic.
+  audit-worker:
+    build: .
+    command: python manage.py audit_worker --verify-interval 3600
+    environment:
+      POSTGRES_HOST: db
+      DJANGO_SECRET_KEY: "${DJANGO_SECRET_KEY:?set DJANGO_SECRET_KEY}"
+      AUDIT_SPOOL_FILE: /var/lib/dx/audit-spool.jsonl
+    env_file: [.env]
+    volumes:
+      - dx-spool:/var/lib/dx
+    depends_on:
+      db: {condition: service_healthy}
+    restart: unless-stopped
+
+  instruments:
+    build: ./instrument_server
+    environment:
+      INSTRUMENT_HOST: 0.0.0.0
+      INSTRUMENT_PORT: "5150"
+      INSTRUMENT_PROTOCOL: "${INSTRUMENT_PROTOCOL:-astm}"
+      LIS_URL: http://web:8000
+      INSTRUMENT_INGEST_TOKEN: "${INSTRUMENT_INGEST_TOKEN:?set INSTRUMENT_INGEST_TOKEN}"
+      INSTRUMENT_SPOOL: /var/lib/dx/instrument-spool.jsonl
+    volumes:
+      - dx-instr-spool:/var/lib/dx
+    ports: ["5150:5150"]
+    depends_on: [web]
+    restart: unless-stopped
+
+volumes:
+  dx-db:
+  dx-spool:
+  dx-instr-spool:
+  dx-media:

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}KPIs{% endblock %}
+{% block page_title %}Key performance indicators{% endblock %}
+{% block page_subtitle %}<div class="subtitle">Rolling {{ days }}-day window</div>{% endblock %}
+
+{% block content %}
+<form method="get" class="filters">
+    <div class="field">
+        <label for="days">Window (days)</label>
+        <select id="days" name="days" onchange="this.form.submit()">
+            <option value="7" {% if days == 7 %}selected{% endif %}>7</option>
+            <option value="30" {% if days == 30 %}selected{% endif %}>30</option>
+            <option value="90" {% if days == 90 %}selected{% endif %}>90</option>
+            <option value="365" {% if days == 365 %}selected{% endif %}>365</option>
+        </select>
+    </div>
+</form>
+
+<div class="stat-grid">
+    <div class="stat"><div class="label">Orders received</div><div class="value">{{ orders_received }}</div></div>
+    <div class="stat ok"><div class="label">Orders completed</div><div class="value">{{ orders_completed }}</div></div>
+    <div class="stat"><div class="label">Median TAT</div>
+        <div class="value">{% if tat_median %}{{ tat_median }}h{% else %}—{% endif %}</div></div>
+    <div class="stat"><div class="label">90th percentile TAT</div>
+        <div class="value">{% if tat_p90 %}{{ tat_p90 }}h{% else %}—{% endif %}</div></div>
+    <div class="stat {% if breaches %}warn{% endif %}"><div class="label">TAT breaches</div><div class="value">{{ breaches }}</div></div>
+    <div class="stat"><div class="label">Results entered</div><div class="value">{{ results_entered }}</div></div>
+    <div class="stat {% if qc_failures %}danger{% else %}ok{% endif %}">
+        <div class="label">QC pass rate</div>
+        <div class="value">{% if qc_pass_rate is not None %}{{ qc_pass_rate }}%{% else %}—{% endif %}</div>
+        <div class="delta">{{ qc_failures }} failure{{ qc_failures|pluralize }} of {{ qc_total }}</div></div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Completed orders by department</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Department</th><th class="right">Completed</th></tr></thead>
+            <tbody>
+            {% for row in by_department %}
+                <tr><td>{{ row.tests__department__name|default:"Unassigned" }}</td>
+                    <td class="right mono">{{ row.count }}</td></tr>
+            {% empty %}
+                <tr><td colspan="2" class="empty">No completed orders in this window.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

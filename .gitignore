@@ -1,53 +1,38 @@
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
 
-# dependencies
-/node_modules
-**/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
+# Django
+/staticfiles/
+/media/
+*.log
+db.sqlite3
 
-# testing
-/coverage
+# Environment and secrets
+.env
+.env.local
 
-# next.js
-/.next/
-/out/
+# Audit and instrument spool files (durable state, never committed)
+audit-spool.jsonl
+audit-spool.replaying
+instrument-spool.jsonl
+instrument-spool.replaying
 
-# production
-/build
+# Legacy database, kept out of version control during migration
+sqlite_v2.db
+*.dump
 
-# misc
+# Tooling
+.pytest_cache/
+.coverage
+htmlcov/
+.ruff_cache/
+.mypy_cache/
+
+# Editors / OS
+.idea/
+.vscode/
 .DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-# SQLite database (contains patient data - never commit)
-*.db
-*.sqlite
-*.sqlite3
-
-# Data backups (may contain patient data)
-data/
-
-# Claude Code project config (local only)
-.claude/

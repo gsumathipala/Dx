@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}Workflow queues{% endblock %}
+{% block page_title %}Workflow queues{% endblock %}
+{% block content %}
+{% for entry in queues %}
+<div class="card">
+    <div class="card-header"><h3>{{ entry.queue.name }}</h3>
+        <span>{% if entry.permitted %}<span class="badge badge-ok">You may authorise</span>
+              {% else %}<span class="badge badge-muted">Restricted</span>{% endif %}</span></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Accession</th><th>Patient</th><th>Status</th><th>Age</th><th></th></tr></thead>
+        <tbody>
+        {% for order in entry.orders %}
+            <tr><td class="mono">{{ order.accession_number }}</td><td>{{ order.patient.full_name }}</td>
+                <td>{{ order.status|status_badge }}</td><td>{{ order.turnaround_hours|floatformat:1 }}h</td>
+                <td class="right">{% if entry.permitted %}<a class="btn btn-sm" href="{% url 'laboratory:result_entry' order.pk %}">Open</a>{% endif %}</td></tr>
+        {% empty %}<tr><td colspan="5" class="empty">Queue is empty.</td></tr>{% endfor %}
+        </tbody></table></div>
+</div>
+{% endfor %}
+<div class="card">
+    <div class="card-header"><h3>Unassigned</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Accession</th><th>Patient</th><th>Status</th><th></th></tr></thead>
+        <tbody>
+        {% for order in unassigned %}
+            <tr><td class="mono">{{ order.accession_number }}</td><td>{{ order.patient.full_name }}</td>
+                <td>{{ order.status|status_badge }}</td>
+                <td class="right"><a class="btn btn-sm" href="{% url 'laboratory:result_entry' order.pk %}">Open</a></td></tr>
+        {% empty %}<tr><td colspan="4" class="empty">Nothing unassigned.</td></tr>{% endfor %}
+        </tbody></table></div>
+</div>
+{% endblock %}

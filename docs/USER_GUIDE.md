@@ -27,7 +27,7 @@ Dx LIS is an APHL 2019 compliant Laboratory Information System designed for clin
 ## Getting Started
 
 ### Accessing the System
-Navigate to: `http://localhost:3000`
+Navigate to: `http://localhost:8000`
 
 ### Default Login Credentials
 

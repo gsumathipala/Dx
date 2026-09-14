@@ -1,0 +1,9 @@
+{% extends "generic/list.html" %}
+{% block content %}
+<div class="stat-grid">
+    <div class="stat"><div class="label">Billed</div><div class="value">{{ billed }}</div></div>
+    <div class="stat ok"><div class="label">Collected</div><div class="value">{{ collected }}</div></div>
+    <div class="stat warn"><div class="label">Outstanding</div><div class="value">{{ outstanding }}</div></div>
+</div>
+{{ block.super }}
+{% endblock %}

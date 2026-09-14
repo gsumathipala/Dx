@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Confirm deletion{% endblock %}
+{% block page_title %}Confirm deletion{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width:560px">
+    <div class="card-body">
+        <div class="alert alert-warning">
+            This deletion is permanent and will be recorded in the audit trail
+            against your account.
+        </div>
+        <p>Delete <strong>{{ object }}</strong>?</p>
+        <form method="post">
+            {% csrf_token %}
+            <div class="btn-group">
+                <button class="btn btn-danger" type="submit">Delete</button>
+                <a class="btn" href="{{ request.META.HTTP_REFERER|default:'..' }}">Cancel</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

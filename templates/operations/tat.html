@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Turnaround monitor{% endblock %}
+{% block page_title %}Turnaround time monitor{% endblock %}
+{% block page_subtitle %}<div class="subtitle">Open orders against their configured targets</div>{% endblock %}
+
+{% block content %}
+<div class="stat-grid">
+    <div class="stat {% if breached %}danger{% else %}ok{% endif %}">
+        <div class="label">Breached</div><div class="value">{{ breached }}</div></div>
+    <div class="stat {% if warning %}warn{% endif %}">
+        <div class="label">Approaching target</div><div class="value">{{ warning }}</div></div>
+    <div class="stat"><div class="label">Open orders</div><div class="value">{{ rows|length }}</div></div>
+</div>
+
+<div class="card">
+    <div class="card-body flush">
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr><th>Accession</th><th>Patient</th><th>Priority</th><th>Status</th>
+                    <th>Elapsed</th><th>Target</th><th>State</th><th></th></tr></thead>
+                <tbody>
+                {% for row in rows %}
+                    <tr>
+                        <td class="mono">{{ row.order.accession_number }}</td>
+                        <td>{{ row.order.patient.full_name }}</td>
+                        <td>{{ row.order.priority }}</td>
+                        <td>{{ row.order.status|status_badge }}</td>
+                        <td><strong>{{ row.elapsed }}h</strong></td>
+                        <td class="muted">{% if row.threshold %}{{ row.threshold.target_hours }}h{% else %}—{% endif %}</td>
+                        <td>
+                            {% if row.state == "breach" %}<span class="badge badge-danger">Breached</span>
+                            {% elif row.state == "warning" %}<span class="badge badge-warn">Approaching</span>
+                            {% else %}<span class="badge badge-ok">On track</span>{% endif %}
+                        </td>
+                        <td class="right"><a class="btn btn-sm" href="{% url 'laboratory:result_entry' row.order.pk %}">Open</a></td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="8" class="empty">No open orders.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

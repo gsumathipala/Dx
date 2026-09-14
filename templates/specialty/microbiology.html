@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Microbiology{% endblock %}
+{% block page_title %}Microbiology{% endblock %}
+{% block page_actions %}
+    <a class="btn" href="{% url 'specialty:cultures' %}">Cultures</a>
+    <a class="btn" href="{% url 'specialty:susceptibilities' %}">Susceptibilities</a>
+{% endblock %}
+{% block content %}
+<div class="stat-grid">
+    {% for label, count in by_status.items %}
+        <div class="stat"><div class="label">{{ label }}</div><div class="value">{{ count }}</div></div>
+    {% endfor %}
+</div>
+<div class="card"><div class="card-header"><h3>Cultures on the bench</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Accession</th><th>Status</th><th>Incubator</th><th>Set up</th><th>Hours</th><th>Susceptibilities</th></tr></thead>
+        <tbody>
+        {% for culture in cultures %}
+            <tr><td class="mono">{{ culture.order.accession_number }}</td>
+                <td>{{ culture.status|status_badge }}</td>
+                <td>{{ culture.incubator_location|default:"—" }}</td>
+                <td class="nowrap">{{ culture.setup_time|date:"Y-m-d H:i"|default:"—" }}</td>
+                <td>{% if culture.incubation_hours %}{{ culture.incubation_hours|floatformat:0 }}h{% else %}—{% endif %}</td>
+                <td class="muted">
+                    {% for susceptibility in culture.susceptibilities.all %}
+                        {{ susceptibility.antibiotic.name }}:{{ susceptibility.interpretation }}{% if not forloop.last %}, {% endif %}
+                    {% empty %}—{% endfor %}
+                </td></tr>
+        {% empty %}<tr><td colspan="6" class="empty">No cultures set up.</td></tr>{% endfor %}
+        </tbody></table></div></div>
+<div class="card"><div class="card-header"><h3>Recent resistant isolates</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Organism</th><th>Antibiotic</th><th>MIC</th><th>Standard</th></tr></thead>
+        <tbody>
+        {% for entry in resistant %}
+            <tr><td><em>{{ entry.organism }}</em></td><td>{{ entry.antibiotic.name }}</td>
+                <td class="mono">{{ entry.mic|default:"—" }}</td><td>{{ entry.standard }}</td></tr>
+        {% empty %}<tr><td colspan="4" class="empty">No resistant isolates recorded.</td></tr>{% endfor %}
+        </tbody></table></div></div>
+{% endblock %}

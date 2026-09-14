@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Histopathology{% endblock %}
+{% block page_title %}Histopathology{% endblock %}
+{% block page_actions %}
+    <a class="btn" href="{% url 'specialty:blocks' %}">Blocks</a>
+    <a class="btn" href="{% url 'specialty:slides' %}">Slides</a>
+{% endblock %}
+{% block content %}
+<div class="stat-grid">
+    {% for label, count in by_status.items %}
+        <div class="stat"><div class="label">{{ label }}</div><div class="value">{{ count }}</div></div>
+    {% endfor %}
+</div>
+<div class="card"><div class="card-header"><h3>Recent blocks</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Block</th><th>Accession</th><th>Tissue</th><th>Status</th><th>Grossed by</th><th>When</th></tr></thead>
+        <tbody>
+        {% for block in blocks %}
+            <tr><td class="mono">{{ block.block_id }}</td>
+                <td class="mono">{{ block.specimen.order.accession_number }}</td>
+                <td>{{ block.tissue_type|default:"—" }}</td><td>{{ block.status|status_badge }}</td>
+                <td>{{ block.grossed_by|default:"—" }}</td><td class="nowrap">{{ block.timestamp|date:"Y-m-d H:i" }}</td></tr>
+        {% empty %}<tr><td colspan="6" class="empty">No blocks recorded.</td></tr>{% endfor %}
+        </tbody></table></div></div>
+<div class="card"><div class="card-header"><h3>Recent slides</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Slide</th><th>Block</th><th>Stain</th><th>Status</th><th>By</th><th>When</th></tr></thead>
+        <tbody>
+        {% for slide in slides %}
+            <tr><td class="mono">{{ slide.slide_id }}</td><td class="mono">{{ slide.block.block_id }}</td>
+                <td>{{ slide.stain }}</td><td>{{ slide.status|status_badge }}</td>
+                <td>{{ slide.stained_by|default:"—" }}</td><td class="nowrap">{{ slide.timestamp|date:"Y-m-d H:i" }}</td></tr>
+        {% empty %}<tr><td colspan="6" class="empty">No slides recorded.</td></tr>{% endfor %}
+        </tbody></table></div></div>
+{% endblock %}

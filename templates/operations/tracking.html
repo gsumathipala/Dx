@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block title %}Tracking{% endblock %}
+{% block page_title %}Chain of custody{% endblock %}
+{% block page_subtitle %}<div class="subtitle">Every custody transfer for a specimen, in order</div>{% endblock %}
+{% block content %}
+<form method="get" class="filters">
+    <div class="field"><label for="q">Specimen or accession</label>
+        <input type="search" id="q" name="q" value="{{ query }}"></div>
+    <div class="btn-group"><button class="btn btn-primary" type="submit">Search</button></div>
+</form>
+<div class="card"><div class="card-body flush"><table class="data">
+    <thead><tr><th>When</th><th>Specimen</th><th>Accession</th><th>Event</th><th>From</th><th>To</th><th>Location</th></tr></thead>
+    <tbody>
+    {% for event in events %}
+        <tr><td class="nowrap">{{ event.timestamp|date:"Y-m-d H:i:s" }}</td>
+            <td class="mono">{{ event.specimen.container_id|default:event.specimen.pk }}</td>
+            <td class="mono">{{ event.specimen.order.accession_number }}</td>
+            <td><span class="badge badge-info">{{ event.get_event_type_display }}</span></td>
+            <td>{{ event.from_custodian|default:"—" }}</td><td>{{ event.to_custodian|default:"—" }}</td>
+            <td class="muted">{{ event.location|default:"—" }}</td></tr>
+    {% empty %}<tr><td colspan="7" class="empty">No custody events found.</td></tr>{% endfor %}
+    </tbody></table></div></div>
+{% endblock %}

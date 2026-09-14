@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Epidemiology{% endblock %}
+{% block page_title %}Notifiable condition reporting{% endblock %}
+{% block page_subtitle %}<div class="subtitle">Conditions detected that must be reported to public health authorities</div>{% endblock %}
+
+{% block content %}
+{% if overdue %}
+    <div class="alert alert-error">
+        <strong>{{ overdue|length }} notification{{ overdue|length|pluralize }} past the statutory reporting window.</strong>
+    </div>
+{% endif %}
+
+<div class="card">
+    <div class="card-body flush">
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr>
+                    <th>Detected</th><th>Condition</th><th>Patient</th><th>Accession</th>
+                    <th>Reporting body</th><th>Window</th><th>Status</th><th>Reference</th><th></th>
+                </tr></thead>
+                <tbody>
+                {% for item in notifications %}
+                    <tr>
+                        <td class="nowrap">{{ item.detected_at|date:"Y-m-d H:i" }}</td>
+                        <td>{{ item.condition.name }}{% if item.condition.organism %}<div class="muted">{{ item.condition.organism }}</div>{% endif %}</td>
+                        <td>{{ item.patient.full_name }}<div class="muted mono" style="font-size:11px">{{ item.patient.mrn }}</div></td>
+                        <td class="mono">{{ item.order.accession_number }}</td>
+                        <td>{{ item.condition.reporting_body }}</td>
+                        <td>{% if item.is_overdue %}<span class="badge badge-danger">{{ item.condition.timeframe }} — overdue</span>
+                            {% else %}<span class="badge badge-muted">{{ item.condition.timeframe }}</span>{% endif %}</td>
+                        <td>{{ item.status|status_badge }}</td>
+                        <td class="mono">{{ item.reference_number|default:"—" }}</td>
+                        <td class="right">
+                            {% if item.status != "Submitted" and item.status != "Closed" %}
+                                <form method="post" action="{% url 'clinical:submit_epidemiology' item.pk %}" class="btn-group">
+                                    {% csrf_token %}
+                                    <input type="text" name="reference_number" placeholder="Reference" style="width:120px">
+                                    <button class="btn btn-sm btn-primary" type="submit">Mark reported</button>
+                                </form>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="9" class="empty">No notifiable conditions detected.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Specimen receiving{% endblock %}
+{% block page_title %}Specimen receiving{% endblock %}
+{% block page_subtitle %}<div class="subtitle">Record arrival, assess condition and reject where criteria are met</div>{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header"><h3>Receive a specimen</h3></div>
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+            {% include "partials/form.html" %}
+            <button class="btn btn-primary" type="submit">Record receipt</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Awaiting receipt</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Accession</th><th>Patient</th><th>Ordered</th><th>Priority</th></tr></thead>
+            <tbody>
+            {% for order in awaiting %}
+                <tr><td class="mono">{{ order.accession_number }}</td>
+                    <td>{{ order.patient.full_name }}</td>
+                    <td class="nowrap">{{ order.timestamp|date:"Y-m-d H:i" }}</td>
+                    <td>{{ order.priority }}</td></tr>
+            {% empty %}
+                <tr><td colspan="4" class="empty">Nothing awaiting receipt.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Recently received</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Received</th><th>Accession</th><th>Condition</th><th>Status</th><th>Rejection reason</th><th>By</th></tr></thead>
+            <tbody>
+            {% for receipt in recent %}
+                <tr><td class="nowrap">{{ receipt.received_at|date:"Y-m-d H:i" }}</td>
+                    <td class="mono">{{ receipt.order.accession_number }}</td>
+                    <td>{{ receipt.condition|status_badge }}</td>
+                    <td>{{ receipt.status|status_badge }}</td>
+                    <td class="muted">{{ receipt.rejection_reason.reason|default:"—" }}</td>
+                    <td>{{ receipt.received_by }}</td></tr>
+            {% empty %}
+                <tr><td colspan="6" class="empty">No receipts recorded.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

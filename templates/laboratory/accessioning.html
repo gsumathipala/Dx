@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Accessioning{% endblock %}
+{% block page_title %}Accessioning{% endblock %}
+{% block page_subtitle %}<div class="subtitle">Register a request and allocate its accession number</div>{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header"><h3>New request</h3></div>
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+            {% include "partials/form.html" %}
+            <button class="btn btn-primary" type="submit">Accession</button>
+        </form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Recently accessioned</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Accession</th><th>Patient</th><th>Tests</th><th>Priority</th><th>Status</th><th>Received</th></tr></thead>
+            <tbody>
+            {% for order in recent %}
+                <tr>
+                    <td class="mono">{{ order.accession_number }}</td>
+                    <td>{{ order.patient.full_name }} <span class="muted mono">{{ order.patient.mrn }}</span></td>
+                    <td class="muted">{% for test in order.tests.all %}{{ test.code }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+                    <td>{% if order.priority == "STAT" %}<span class="badge badge-danger">STAT</span>{% else %}{{ order.priority }}{% endif %}</td>
+                    <td>{{ order.status|status_badge }}</td>
+                    <td class="nowrap">{{ order.timestamp|date:"Y-m-d H:i" }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="6" class="empty">Nothing accessioned yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

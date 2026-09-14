@@ -65,6 +65,8 @@ This document outlines the international standards required to connect Dx LIS wi
 ## Developer Implementation Checklist
 
 - [ ] **Map Local Codes:** Ensure all TESTS in `db.json` have a valid `loincCode`.
-- [ ] **Build FHIR Facade:** Create `GET /api/fhir/DiagnosticReport` endpoint.
+- [x] **FHIR facade:** `GET /interop/fhir/DiagnosticReport/<order>/` returns a
+      DiagnosticReport, or a full Bundle with `?bundle=1`. HL7 v2 ORU^R01 is
+      available at `GET /interop/hl7/oru/<order>/`.
 - [ ] **Implement mTLS:** Secure the API Gateway with certificate-based auth.
 - [ ] **Validate Units:** Enforce UCUM standard units in the Result Entry forms.

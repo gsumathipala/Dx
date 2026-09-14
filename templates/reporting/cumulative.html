@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Cumulative report{% endblock %}
+{% block page_title %}Cumulative report{% endblock %}
+{% block page_subtitle %}<div class="subtitle">All results for one patient, trended across episodes</div>{% endblock %}
+{% block page_actions %}{% if patient %}<button class="btn" onclick="window.print()">Print</button>{% endif %}{% endblock %}
+{% block content %}
+<form method="get" class="filters no-print">
+    <div class="field"><label for="patient">Patient</label>
+        <select id="patient" name="patient" onchange="this.form.submit()">
+            <option value="">Choose…</option>
+            {% for option in patients %}
+                <option value="{{ option.pk }}" {% if patient and patient.pk == option.pk %}selected{% endif %}>
+                    {{ option.last_name }}, {{ option.first_name }} — {{ option.mrn }}</option>
+            {% endfor %}
+        </select></div>
+</form>
+
+{% if patient %}
+<div class="card">
+    <div class="card-header"><h3>{{ patient.full_name }} — {{ patient.mrn }}</h3>
+        <span class="muted">{{ dates|length }} episode{{ dates|length|pluralize }}</span></div>
+    <div class="card-body flush"><div class="table-wrap"><table class="data">
+        <thead><tr><th>Test</th><th>Units</th><th>Reference</th>
+            {% for date in dates %}<th class="nowrap">{{ date|date:"d/m/y H:i" }}</th>{% endfor %}</tr></thead>
+        <tbody>
+        {% for test, by_date in grid.items %}
+            <tr>
+                <td><strong class="mono">{{ test.code }}</strong><div class="muted">{{ test.name }}</div></td>
+                <td class="muted">{{ test.units|default:"—" }}</td>
+                <td class="muted nowrap">{{ test.reference_display }}</td>
+                {% for date in dates %}
+                    {% with result=by_date|dx_get:date %}
+                        <td>{% if result %}{{ result.value }}
+                            {% for flag in result.result_flags %}<span class="badge badge-warn">{{ flag|slice:":1" }}</span>{% endfor %}
+                        {% else %}<span class="muted">—</span>{% endif %}</td>
+                    {% endwith %}
+                {% endfor %}
+            </tr>
+        {% empty %}
+            <tr><td colspan="{{ dates|length|add:3 }}" class="empty">No results for this patient.</td></tr>
+        {% endfor %}
+        </tbody></table></div></div>
+</div>
+{% else %}
+<div class="card"><div class="card-body"><div class="empty">Choose a patient to build a cumulative report.</div></div></div>
+{% endif %}
+{% endblock %}

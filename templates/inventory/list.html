@@ -1,0 +1,5 @@
+{% extends "generic/list.html" %}
+{% block content %}
+<div class="alert alert-info">Inventory reagents are linked to the tests that consume them, so result entry decrements the correct item.</div>
+{{ block.super }}
+{% endblock %}

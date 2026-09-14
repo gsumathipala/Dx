@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}Critical values{% endblock %}
+{% block page_title %}Critical values{% endblock %}
+{% block page_subtitle %}
+    <div class="subtitle">
+        Life-threatening results requiring documented clinician notification with read-back · CAP GEN.41320
+    </div>
+{% endblock %}
+
+{% block content %}
+{% if pending_count %}
+    <div class="alert alert-error">
+        <strong>{{ pending_count }} critical value{{ pending_count|pluralize }} awaiting notification.</strong>
+        Each must be communicated to a responsible clinician and the read-back documented.
+    </div>
+{% endif %}
+
+<form method="get" class="filters">
+    <div class="field">
+        <label for="status">Status</label>
+        <select id="status" name="status" onchange="this.form.submit()">
+            <option value="all" {% if selected_status == "all" %}selected{% endif %}>All</option>
+            {% for value, label in statuses %}
+                <option value="{{ value }}" {% if selected_status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+</form>
+
+<div class="card">
+    <div class="card-body flush">
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr>
+                    <th>Detected</th><th>Patient</th><th>Accession</th><th>Test</th>
+                    <th>Value</th><th>Limit</th><th>Waiting</th><th>Status</th><th></th>
+                </tr></thead>
+                <tbody>
+                {% for item in notifications %}
+                    <tr>
+                        <td class="nowrap">{{ item.created_at|date:"Y-m-d H:i" }}</td>
+                        <td>{{ item.patient.full_name }}<div class="muted mono" style="font-size:11px">{{ item.patient.mrn }}</div></td>
+                        <td class="mono">{{ item.order.accession_number }}</td>
+                        <td class="mono">{{ item.test_code }}</td>
+                        <td><strong>{{ item.value }}</strong>
+                            <span class="badge {% if item.critical_type == 'HIGH' %}badge-danger{% else %}badge-info{% endif %}">{{ item.critical_type }}</span></td>
+                        <td class="muted">{{ item.threshold }}</td>
+                        <td>{% if item.status == "Pending" %}
+                                <span class="badge {% if item.is_overdue %}badge-danger{% else %}badge-warn{% endif %}">
+                                    {{ item.minutes_outstanding|floatformat:0 }} min</span>
+                            {% else %}—{% endif %}</td>
+                        <td>{{ item.status|status_badge }}</td>
+                        <td class="right">
+                            {% if item.status == "Pending" %}
+                                <a class="btn btn-sm btn-primary" href="{% url 'clinical:acknowledge_critical' item.pk %}">Document</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="9" class="empty">No critical values in this view.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}

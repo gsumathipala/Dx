@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block page_subtitle %}<div class="subtitle">{{ user.get_full_name }} · {{ user.get_role_display }}</div>{% endblock %}
+
+{% block content %}
+<div class="stat-grid">
+    <div class="stat"><div class="label">Orders today</div><div class="value">{{ orders_today }}</div></div>
+    <div class="stat warn"><div class="label">Pending</div><div class="value">{{ pending }}</div>
+        <div class="delta">{{ stat_pending }} STAT</div></div>
+    <div class="stat ok"><div class="label">Completed today</div><div class="value">{{ completed_today }}</div></div>
+    <div class="stat"><div class="label">Average TAT</div>
+        <div class="value">{% if average_tat %}{{ average_tat }}h{% else %}—{% endif %}</div>
+        <div class="delta">Completed today</div></div>
+    <div class="stat {% if critical_pending %}danger{% endif %}">
+        <div class="label">Critical values</div><div class="value">{{ critical_pending|length }}</div>
+        <div class="delta">Awaiting notification</div></div>
+    <div class="stat"><div class="label">Unread messages</div><div class="value">{{ unread_messages }}</div></div>
+</div>
+
+{% if critical_pending %}
+<div class="card">
+    <div class="card-header">
+        <h3>Critical values awaiting clinician notification</h3>
+        <a class="btn btn-sm btn-danger" href="{% url 'clinical:critical_values' %}">Action now</a>
+    </div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Detected</th><th>Patient</th><th>Test</th><th>Value</th><th>Limit</th><th>Waiting</th></tr></thead>
+            <tbody>
+            {% for item in critical_pending %}
+                <tr>
+                    <td class="nowrap">{{ item.created_at|date:"H:i" }}</td>
+                    <td>{{ item.patient.full_name }} <span class="muted mono">{{ item.patient.mrn }}</span></td>
+                    <td class="mono">{{ item.test_code }}</td>
+                    <td><strong>{{ item.value }}</strong></td>
+                    <td class="muted">{{ item.threshold }}</td>
+                    <td>
+                        {% if item.is_overdue %}
+                            <span class="badge badge-danger">{{ item.minutes_outstanding|floatformat:0 }} min — overdue</span>
+                        {% else %}
+                            <span class="badge badge-warn">{{ item.minutes_outstanding|floatformat:0 }} min</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Workload by status</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Status</th><th class="right">Orders</th></tr></thead>
+            <tbody>
+            {% for row in by_status %}
+                <tr><td>{{ row.status|status_badge }}</td><td class="right mono">{{ row.count }}</td></tr>
+            {% empty %}
+                <tr><td colspan="2" class="empty">No orders recorded yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h3>Recent orders</h3>
+        <a class="btn btn-sm" href="{% url 'laboratory:results' %}">Worklist</a>
+    </div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Accession</th><th>Patient</th><th>Priority</th><th>Status</th><th>Received</th><th></th></tr></thead>
+            <tbody>
+            {% for order in recent_orders %}
+                <tr>
+                    <td class="mono">{{ order.accession_number }}</td>
+                    <td>{{ order.patient.full_name }}</td>
+                    <td>{% if order.priority == "STAT" %}<span class="badge badge-danger">STAT</span>{% else %}{{ order.priority }}{% endif %}</td>
+                    <td>{{ order.status|status_badge }}</td>
+                    <td class="nowrap">{{ order.timestamp|date:"Y-m-d H:i" }}</td>
+                    <td class="right"><a class="btn btn-sm" href="{% url 'laboratory:result_entry' order.pk %}">Open</a></td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="6" class="empty">No orders yet. Start at Accessioning.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+{% if low_stock %}
+<div class="card">
+    <div class="card-header"><h3>Reagents at or below threshold</h3>
+        <a class="btn btn-sm" href="{% url 'inventory:list' %}">Inventory</a></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Item</th><th>Lot</th><th class="right">Quantity</th><th class="right">Threshold</th><th>Expires</th></tr></thead>
+            <tbody>
+            {% for item in low_stock %}
+                <tr>
+                    <td>{{ item.name }}</td><td class="mono">{{ item.lot_number|default:"—" }}</td>
+                    <td class="right"><strong>{{ item.quantity }}</strong> {{ item.unit }}</td>
+                    <td class="right muted">{{ item.min_threshold }}</td>
+                    <td class="nowrap">{{ item.expiration_date|default:"—" }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

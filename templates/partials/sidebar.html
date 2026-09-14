@@ -1,0 +1,39 @@
+<div class="sidebar no-print">
+    <div class="sidebar-header">
+        <h1>Dx</h1>
+        <p class="role">{{ user.get_role_display }} module</p>
+    </div>
+
+    <nav class="sidebar-nav">
+        {% for title, items in nav_sections %}
+            <div class="nav-section">
+                <div class="nav-section-title">{{ title }}</div>
+                {% for item in items %}
+                    <a class="nav-item{% if request.resolver_match.view_name == item.url_name %} active{% endif %}"
+                       href="{% url item.url_name %}">{{ item.label }}</a>
+                {% endfor %}
+            </div>
+        {% endfor %}
+
+        {% if nav_admin_items %}
+            <div class="nav-section">
+                <div class="nav-section-title">Administration</div>
+                {% for item in nav_admin_items %}
+                    <a class="nav-item{% if request.resolver_match.view_name == item.url_name %} active{% endif %}"
+                       href="{% url item.url_name %}">{{ item.label }}</a>
+                {% endfor %}
+            </div>
+        {% endif %}
+    </nav>
+
+    <div class="sidebar-footer">
+        <div class="user">{{ user.get_full_name }}</div>
+        <div class="meta">
+            {{ user.username }}{% if user.department %} · {{ user.department.name }}{% endif %}
+        </div>
+        <form method="post" action="{% url 'accounts:logout' %}" style="margin-top:8px">
+            {% csrf_token %}
+            <button class="btn btn-sm" type="submit">Sign out</button>
+        </form>
+    </div>
+</div>

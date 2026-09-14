@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Storage{% endblock %}
+{% block page_title %}Specimen storage{% endblock %}
+{% block page_actions %}<a class="btn" href="{% url 'operations:storage_locations' %}">Locations</a>{% endblock %}
+{% block content %}
+<div class="card"><div class="card-header"><h3>Store a specimen</h3></div>
+    <div class="card-body"><form method="post">{% csrf_token %}{% include "partials/form.html" %}
+        <button class="btn btn-primary" type="submit">Store</button></form></div></div>
+
+<div class="card"><div class="card-header"><h3>Locations</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Location</th><th>Kind</th><th>Temperature</th><th>Occupied</th><th>Capacity</th></tr></thead>
+        <tbody>
+        {% for location in locations %}
+            <tr><td>{{ location.path }}</td><td>{{ location.get_kind_display }}</td>
+                <td>{{ location.temperature|default:"—" }}</td><td>{{ location.occupancy }}</td>
+                <td>{% if location.capacity %}{{ location.capacity }}{% if location.is_full %} <span class="badge badge-danger">Full</span>{% endif %}{% else %}—{% endif %}</td></tr>
+        {% empty %}<tr><td colspan="5" class="empty">No storage locations configured.</td></tr>{% endfor %}
+        </tbody></table></div></div>
+
+<div class="card"><div class="card-header"><h3>Stored specimens</h3></div>
+    <div class="card-body flush"><table class="data">
+        <thead><tr><th>Stored</th><th>Specimen</th><th>Location</th><th>Position</th><th>By</th></tr></thead>
+        <tbody>
+        {% for assignment in assignments %}
+            <tr><td class="nowrap">{{ assignment.stored_at|date:"Y-m-d H:i" }}</td>
+                <td class="mono">{{ assignment.specimen.container_id|default:assignment.specimen.pk }}</td>
+                <td>{{ assignment.location.path }}</td><td class="mono">{{ assignment.position|default:"—" }}</td>
+                <td>{{ assignment.stored_by }}</td></tr>
+        {% empty %}<tr><td colspan="5" class="empty">Nothing in storage.</td></tr>{% endfor %}
+        </tbody></table></div></div>
+{% endblock %}

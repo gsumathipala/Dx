@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Audit event #{{ event.sequence }}{% endblock %}
+{% block page_title %}Audit event #{{ event.sequence }}{% endblock %}
+{% block page_subtitle %}<div class="subtitle">{{ event.action }} on {{ event.entity_type }}</div>{% endblock %}
+{% block page_actions %}
+    <a class="btn" href="{% url 'audit:entity_history' event.entity_type event.entity_id %}">Record history</a>
+    <a class="btn" href="{% url 'audit:trail' %}">Back to trail</a>
+{% endblock %}
+
+{% block content %}
+{% if not hash_valid %}
+    <div class="alert alert-error">
+        <strong>This event fails verification.</strong>
+        Its stored hash does not match its content — the record has been altered
+        outside the application. Treat the surrounding data as suspect and
+        investigate immediately.
+    </div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Event</h3>
+        <span class="{% if hash_valid %}chain-ok{% else %}chain-broken{% endif %}">
+            {% if hash_valid %}Hash verified{% else %}HASH MISMATCH{% endif %}
+        </span>
+    </div>
+    <div class="card-body">
+        <table class="data">
+            <tr><th style="width:180px">Occurred</th><td>{{ event.timestamp|date:"Y-m-d H:i:s.u T" }}</td></tr>
+            <tr><th>Recorded</th><td>{{ event.recorded_at|date:"Y-m-d H:i:s.u T" }}</td></tr>
+            <tr><th>User</th><td>{{ event.actor_username }} {% if event.actor_role %}({{ event.actor_role }}){% endif %}</td></tr>
+            <tr><th>Action</th><td>{{ event.get_action_display }}</td></tr>
+            <tr><th>Record</th><td>{{ event.entity_label|default:"—" }} <span class="muted mono">{{ event.entity_type }} / {{ event.entity_id }}</span></td></tr>
+            {% if event.reason %}<tr><th>Reason given</th><td>{{ event.reason }}</td></tr>{% endif %}
+            <tr><th>Source</th><td>{{ event.get_source_display }}</td></tr>
+            <tr><th>Client address</th><td class="mono">{{ event.ip_address|default:"—" }}</td></tr>
+            <tr><th>Request id</th><td class="mono">{{ event.request_id|default:"—" }}</td></tr>
+            <tr><th>User agent</th><td class="muted" style="font-size:12px">{{ event.user_agent|default:"—"|truncatechars:160 }}</td></tr>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>What changed</h3></div>
+    <div class="card-body flush">
+        <table class="diff-table">
+            <thead><tr><th style="width:220px">Field</th><th>Before</th><th>After</th></tr></thead>
+            <tbody>
+            {% for row in event.change_rows %}
+                <tr>
+                    <td><strong>{{ row.field }}</strong></td>
+                    <td class="diff-old">{{ row.old|default_if_none:"—" }}</td>
+                    <td class="diff-new">{{ row.new|default_if_none:"—" }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="3" class="empty">No field-level changes recorded for this event.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Chain position</h3></div>
+    <div class="card-body">
+        <div class="field">
+            <label>Previous hash {% if event.is_genesis %}<span class="muted">(genesis — start of chain)</span>{% endif %}</label>
+            <div class="hash">{{ event.previous_hash }}</div>
+        </div>
+        <div class="field">
+            <label>This event's hash</label>
+            <div class="hash">{{ event.hash }}</div>
+        </div>
+        {% if not hash_valid %}
+            <div class="field">
+                <label>Recomputed from current content</label>
+                <div class="hash" style="color:var(--danger)">{{ recomputed_hash }}</div>
+            </div>
+        {% endif %}
+        <div class="btn-group" style="margin-top:10px">
+            {% for neighbour in neighbours %}
+                <a class="btn btn-sm" href="{% url 'audit:event_detail' neighbour.sequence %}">
+                    {% if neighbour.sequence < event.sequence %}← Previous{% else %}Next →{% endif %} (#{{ neighbour.sequence }})
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}History · {{ latest_label }}{% endblock %}
+{% block page_title %}Change history{% endblock %}
+{% block page_subtitle %}
+    <div class="subtitle">{{ latest_label }} · <span class="mono">{{ entity_type }} / {{ entity_id }}</span></div>
+{% endblock %}
+{% block page_actions %}<a class="btn" href="{% url 'audit:trail' %}">Full trail</a>{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header">
+        <h3>{{ total }} event{{ total|pluralize }} against this record</h3>
+        <span class="muted">Newest first</span>
+    </div>
+    <div class="card-body">
+        <div class="timeline">
+            {% for event in page_obj %}
+                <div class="timeline-item">
+                    <div class="when">
+                        {{ event.timestamp|date:"Y-m-d H:i:s" }} ·
+                        <a href="{% url 'audit:event_detail' event.sequence %}">#{{ event.sequence }}</a>
+                    </div>
+                    <div>
+                        <span class="badge {% if event.action == 'DELETE' %}badge-danger{% elif event.action == 'CREATE' %}badge-ok{% else %}badge-info{% endif %}">
+                            {{ event.action }}
+                        </span>
+                        by <strong>{{ event.actor_username }}</strong>
+                        {% if event.actor_role %}<span class="muted">({{ event.actor_role }})</span>{% endif %}
+                    </div>
+                    {% if event.change_rows %}
+                        <table class="diff-table" style="margin-top:6px">
+                            {% for row in event.change_rows %}
+                                <tr>
+                                    <td style="width:200px"><strong>{{ row.field }}</strong></td>
+                                    <td class="diff-old">{{ row.old|default_if_none:"—"|truncatechars:70 }}</td>
+                                    <td class="diff-new">{{ row.new|default_if_none:"—"|truncatechars:70 }}</td>
+                                </tr>
+                            {% endfor %}
+                        </table>
+                    {% endif %}
+                    {% if event.reason %}<div class="muted" style="margin-top:4px">Reason: {{ event.reason }}</div>{% endif %}
+                </div>
+            {% empty %}
+                <div class="empty">No history recorded for this record.</div>
+            {% endfor %}
+        </div>
+    </div>
+    {% include "partials/pagination.html" %}
+</div>
+{% endblock %}

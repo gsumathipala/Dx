@@ -1,0 +1,46 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Sign in · Dx LIS</title>
+    <link rel="stylesheet" href="{% static 'css/dx.css' %}">
+</head>
+<body>
+<div class="login-shell">
+    <div class="login-card">
+        <h1>Dx</h1>
+        <p class="tagline">Clinical Laboratory Information System</p>
+
+        {% for message in messages %}
+            <div class="alert alert-{{ message.tags|default:'info' }}">{{ message }}</div>
+        {% endfor %}
+        {% if form.non_field_errors %}
+            <div class="alert alert-error">
+                {% for error in form.non_field_errors %}<div>{{ error }}</div>{% endfor %}
+            </div>
+        {% endif %}
+
+        <form method="post">
+            {% csrf_token %}
+            <div class="field">
+                <label for="id_username">Username</label>
+                <input type="text" name="username" id="id_username" autofocus required autocomplete="username">
+            </div>
+            <div class="field">
+                <label for="id_password">Password</label>
+                <input type="password" name="password" id="id_password" required autocomplete="current-password">
+            </div>
+            <input type="hidden" name="next" value="{{ next }}">
+            <button class="btn btn-primary" type="submit" style="width:100%">Sign in</button>
+        </form>
+
+        <p class="muted" style="font-size:11px;margin:18px 0 0;line-height:1.5">
+            Access is restricted to authorised personnel. All activity is recorded
+            in an immutable audit trail. Accounts lock after repeated failed
+            sign-in attempts.
+        </p>
+    </div>
+</div>
+</body>
+</html>

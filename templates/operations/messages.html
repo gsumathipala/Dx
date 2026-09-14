@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block title %}Messages{% endblock %}
+{% block page_title %}Messages{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-header"><h3>New message</h3></div>
+    <div class="card-body">
+        <form method="post">{% csrf_token %}{% include "partials/form.html" %}
+            <button class="btn btn-primary" type="submit">Send</button></form>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Inbox</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>When</th><th>From</th><th>Subject</th><th>Message</th></tr></thead>
+            <tbody>
+            {% for message in inbox %}
+                <tr><td class="nowrap">{{ message.timestamp|date:"Y-m-d H:i" }}</td>
+                    <td>{{ message.sender.get_full_name }}</td><td><strong>{{ message.subject }}</strong></td>
+                    <td class="muted">{{ message.body|truncatechars:100 }}</td></tr>
+            {% empty %}
+                <tr><td colspan="4" class="empty">No messages.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Sent</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>When</th><th>To</th><th>Subject</th><th>Read</th></tr></thead>
+            <tbody>
+            {% for message in sent %}
+                <tr><td class="nowrap">{{ message.timestamp|date:"Y-m-d H:i" }}</td>
+                    <td>{{ message.recipient.get_full_name|default:message.recipient_department.name|default:"Broadcast" }}</td>
+                    <td>{{ message.subject }}</td>
+                    <td>{% if message.read %}<span class="badge badge-ok">Read</span>{% else %}<span class="badge badge-muted">Unread</span>{% endif %}</td></tr>
+            {% empty %}
+                <tr><td colspan="4" class="empty">Nothing sent.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

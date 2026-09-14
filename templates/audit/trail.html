@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Audit trail{% endblock %}
+{% block page_title %}Audit trail{% endblock %}
+{% block page_subtitle %}
+    <div class="subtitle">
+        Immutable, hash-chained record of every change ·
+        {% if recorder_running %}
+            <span class="chain-ok">recorder running</span>{% if queue_depth %} ({{ queue_depth }} queued){% endif %}
+        {% else %}
+            <span class="chain-broken">recorder stopped</span>
+        {% endif %}
+    </div>
+{% endblock %}
+{% block page_actions %}
+    {% if user.is_manager %}
+        <a class="btn" href="{% url 'audit:export_csv' %}?{{ request.GET.urlencode }}">Export CSV</a>
+        <a class="btn btn-primary" href="{% url 'audit:integrity' %}">Chain integrity</a>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+<form method="get" class="filters">
+    <div class="field">
+        <label for="q">Search</label>
+        <input type="search" id="q" name="q" value="{{ filters.q|default:'' }}"
+               placeholder="Record id, label or user">
+    </div>
+    <div class="field">
+        <label for="entity_type">Record type</label>
+        <select id="entity_type" name="entity_type">
+            <option value="">All</option>
+            {% for value in entity_types %}
+                <option value="{{ value }}" {% if filters.entity_type == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="field">
+        <label for="action">Action</label>
+        <select id="action" name="action">
+            <option value="">All</option>
+            {% for value, label in actions %}
+                <option value="{{ value }}" {% if filters.action == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="field">
+        <label for="actor">User</label>
+        <select id="actor" name="actor">
+            <option value="">All</option>
+            {% for value in actors %}
+                <option value="{{ value }}" {% if filters.actor == value %}selected{% endif %}>{{ value }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="field">
+        <label for="from">From</label>
+        <input type="date" id="from" name="from" value="{{ filters.from|default:'' }}">
+    </div>
+    <div class="field">
+        <label for="to">To</label>
+        <input type="date" id="to" name="to" value="{{ filters.to|default:'' }}">
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-primary" type="submit">Filter</button>
+        <a class="btn" href="{% url 'audit:trail' %}">Reset</a>
+    </div>
+</form>
+
+<div class="card">
+    <div class="card-header">
+        <h3>{{ total }} event{{ total|pluralize }}</h3>
+        <span class="muted">Newest first</span>
+    </div>
+    <div class="card-body flush">
+        <div class="table-wrap">
+            <table class="data">
+                <thead>
+                <tr>
+                    <th>#</th><th>When</th><th>User</th><th>Action</th>
+                    <th>Record</th><th>Changed</th><th>Source</th><th></th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for event in page_obj %}
+                    <tr>
+                        <td class="mono">{{ event.sequence }}</td>
+                        <td class="nowrap">{{ event.timestamp|date:"Y-m-d H:i:s" }}</td>
+                        <td>
+                            {{ event.actor_username }}
+                            {% if event.actor_role %}<div class="muted" style="font-size:11px">{{ event.actor_role }}</div>{% endif %}
+                        </td>
+                        <td>
+                            <span class="badge {% if event.action == 'DELETE' %}badge-danger
+                                {% elif event.action == 'CREATE' %}badge-ok
+                                {% elif event.action == 'LOGIN' or event.action == 'LOGOUT' %}badge-muted
+                                {% else %}badge-info{% endif %}">{{ event.action }}</span>
+                        </td>
+                        <td>
+                            <a href="{% url 'audit:entity_history' event.entity_type event.entity_id %}">
+                                {{ event.entity_label|default:event.entity_id|truncatechars:48 }}
+                            </a>
+                            <div class="muted mono" style="font-size:11px">{{ event.entity_type }}</div>
+                        </td>
+                        <td class="muted">{{ event.changed_fields|join:", "|truncatechars:52|default:"—" }}</td>
+                        <td><span class="badge badge-muted">{{ event.source }}</span></td>
+                        <td class="right">
+                            <a class="btn btn-sm" href="{% url 'audit:event_detail' event.sequence %}">View</a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="8" class="empty">No audit events match these filters.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% include "partials/pagination.html" %}
+</div>
+{% endblock %}

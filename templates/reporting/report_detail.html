@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Report {{ order.accession_number }}{% endblock %}
+{% block page_title %}Laboratory report{% endblock %}
+{% block page_actions %}
+    <button class="btn btn-primary" onclick="window.print()">Print</button>
+    <a class="btn" href="{% url 'interop:fhir_report' order.pk %}?bundle=1">FHIR</a>
+    <a class="btn" href="{% url 'interop:hl7_oru' order.pk %}">HL7</a>
+{% endblock %}
+
+{% block content %}
+<div class="report-sheet">
+    <div class="report-header">
+        <h1>Laboratory Report</h1>
+        {% if amendments %}<div class="badge badge-danger">AMENDED REPORT</div>{% endif %}
+    </div>
+
+    <dl class="report-meta">
+        <div><dt>Patient</dt><dd>{{ patient.full_name }}</dd></div>
+        <div><dt>MRN</dt><dd>{{ patient.mrn }}</dd></div>
+        <div><dt>Date of birth</dt><dd>{{ patient.dob }} ({{ patient.age_display }})</dd></div>
+        <div><dt>Sex</dt><dd>{{ patient.get_gender_display }}</dd></div>
+        <div><dt>Accession</dt><dd>{{ order.accession_number }}</dd></div>
+        <div><dt>Requested by</dt><dd>{{ order.order_by|default:"—" }}</dd></div>
+        <div><dt>Collected</dt><dd>{{ order.timestamp|date:"Y-m-d H:i" }}</dd></div>
+        <div><dt>Reported</dt><dd>{{ order.completed_at|date:"Y-m-d H:i"|default:"—" }}</dd></div>
+    </dl>
+
+    <table class="data" style="margin-top:20px">
+        <thead><tr><th>Test</th><th>Result</th><th>Units</th><th>Reference interval</th><th>Flag</th></tr></thead>
+        <tbody>
+        {% for result in results %}
+            <tr>
+                <td>{{ result.test.name|default:result.test_key }}
+                    <div class="muted mono" style="font-size:11px">{{ result.test.code }}{% if result.test.loinc_code %} · LOINC {{ result.test.loinc_code }}{% endif %}</div></td>
+                <td><strong>{{ result.value }}</strong></td>
+                <td>{{ result.test.units|default:"" }}</td>
+                <td>{{ result.test.reference_display }}</td>
+                <td>{% for flag in result.result_flags %}{{ flag|status_badge }}{% endfor %}</td>
+            </tr>
+        {% empty %}
+            <tr><td colspan="5" class="empty">No results on this report.</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+
+    {% if narrative and narrative.comments %}
+        <div style="margin-top:18px">
+            <strong>Comment</strong>
+            <p style="margin:6px 0 0">{{ narrative.comments|linebreaksbr }}</p>
+        </div>
+    {% endif %}
+
+    {% if amendments %}
+        <div style="margin-top:18px">
+            <strong>Amendments</strong>
+            {% for amendment in amendments %}
+                <p style="margin:6px 0 0">
+                    <strong>Version {{ amendment.version }}</strong> ({{ amendment.get_reason_display }},
+                    {{ amendment.amended_at|date:"Y-m-d H:i" }} by {{ amendment.amended_by.get_full_name }}):
+                    {{ amendment.narrative }}
+                    {% if amendment.original_value %}
+                        <br><span class="muted">Original value: {{ amendment.original_value }} →
+                        corrected to {{ amendment.corrected_value }}</span>
+                    {% endif %}
+                </p>
+            {% endfor %}
+        </div>
+    {% endif %}
+
+    <div class="signature-block">
+        <strong>Authorisation</strong>
+        {% for signature in signatures %}
+            <div>{{ signature.manifest }}{% if signature.reauthenticated %} · identity re-verified at signing{% endif %}</div>
+        {% empty %}
+            {% for signature in legacy_signatures %}
+                <div>{{ signature.get_signature_type_display }}: {{ signature.signed_by }} — {{ signature.signed_at|date:"Y-m-d H:i:s" }}</div>
+            {% empty %}
+                <div>Not yet authorised.</div>
+            {% endfor %}
+        {% endfor %}
+        <div style="margin-top:8px">
+            Printed {{ printed_at|date:"Y-m-d H:i" }} by {{ user.get_full_name }}.
+            Electronic signatures recorded under 21 CFR Part 11.
+        </div>
+    </div>
+</div>
+{% endblock %}

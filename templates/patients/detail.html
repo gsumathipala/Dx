@@ -1,0 +1,133 @@
+{% extends "base.html" %}
+{% block title %}{{ patient.full_name }}{% endblock %}
+{% block page_title %}{{ patient.full_name }}{% endblock %}
+{% block page_subtitle %}
+    <div class="subtitle">
+        {{ patient.mrn }} · born {{ patient.dob }} ({{ patient.age_display }}) ·
+        {{ patient.get_gender_display }}
+    </div>
+{% endblock %}
+{% block page_actions %}
+    <a class="btn" href="{% url 'patients:trend' patient.pk %}">Trends</a>
+    {% if user.is_manager %}<a class="btn" href="{% url 'patients:update' patient.pk %}">Edit</a>{% endif %}
+    <a class="btn" href="{% url 'audit:entity_history' entity_type patient.pk %}">Audit history</a>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info">
+    Your access to this record has been logged for HIPAA disclosure accounting.
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Demographics</h3></div>
+    <div class="card-body">
+        <table class="data">
+            <tr><th style="width:180px">Medical record number</th><td class="mono">{{ patient.mrn }}</td></tr>
+            <tr><th>Name</th><td>{{ patient.full_name }}</td></tr>
+            <tr><th>Date of birth</th><td>{{ patient.dob }} ({{ patient.age_display }})</td></tr>
+            <tr><th>Sex</th><td>{{ patient.get_gender_display }}</td></tr>
+            <tr><th>Phone</th><td>{{ patient.phone|default:"—" }}</td></tr>
+            <tr><th>Email</th><td>{{ patient.email|default:"—" }}</td></tr>
+            <tr><th>Address</th><td>{{ patient.address|default:"—"|linebreaksbr }}</td></tr>
+        </table>
+    </div>
+</div>
+
+{% if critical_values %}
+<div class="card">
+    <div class="card-header"><h3>Critical values</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Detected</th><th>Test</th><th>Value</th><th>Limit</th><th>Status</th></tr></thead>
+            <tbody>
+            {% for item in critical_values %}
+                <tr><td class="nowrap">{{ item.created_at|date:"Y-m-d H:i" }}</td>
+                    <td class="mono">{{ item.test_code }}</td><td><strong>{{ item.value }}</strong></td>
+                    <td class="muted">{{ item.threshold }}</td><td>{{ item.status|status_badge }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Orders ({{ order_count }})</h3></div>
+    <div class="card-body flush">
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr><th>Accession</th><th>Ordered</th><th>Tests</th><th>Priority</th><th>Status</th><th></th></tr></thead>
+                <tbody>
+                {% for order in orders %}
+                    <tr>
+                        <td class="mono">{{ order.accession_number }}</td>
+                        <td class="nowrap">{{ order.timestamp|date:"Y-m-d H:i" }}</td>
+                        <td class="muted">{% for test in order.tests.all %}{{ test.code }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+                        <td>{{ order.priority }}</td>
+                        <td>{{ order.status|status_badge }}</td>
+                        <td class="right">
+                            {% if order.is_complete %}
+                                <a class="btn btn-sm" href="{% url 'reporting:report_detail' order.pk %}">Report</a>
+                            {% else %}
+                                <a class="btn btn-sm" href="{% url 'laboratory:result_entry' order.pk %}">Results</a>
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="6" class="empty">No orders for this patient.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Consent and disclosures</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>Consent</th><th>Granted</th><th>Recorded by</th><th>Current</th></tr></thead>
+            <tbody>
+            {% for consent in consents %}
+                <tr><td>{{ consent.get_kind_display }}</td><td class="nowrap">{{ consent.granted_at|date:"Y-m-d" }}</td>
+                    <td>{{ consent.recorded_by }}</td>
+                    <td>{% if consent.is_current %}<span class="badge badge-ok">Yes</span>{% else %}<span class="badge badge-muted">Withdrawn</span>{% endif %}</td></tr>
+            {% empty %}
+                <tr><td colspan="4" class="empty">No consent records.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% if disclosures %}
+            <table class="data">
+                <thead><tr><th>Disclosed</th><th>Recipient</th><th>Purpose</th><th>By</th></tr></thead>
+                <tbody>
+                {% for disclosure in disclosures %}
+                    <tr><td class="nowrap">{{ disclosure.disclosed_at|date:"Y-m-d" }}</td>
+                        <td>{{ disclosure.recipient_name }}</td><td>{{ disclosure.get_purpose_display }}</td>
+                        <td>{{ disclosure.disclosed_by }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Recent changes to this record</h3>
+        <a class="btn btn-sm" href="{% url 'audit:entity_history' entity_type patient.pk %}">Full history</a></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>When</th><th>User</th><th>Action</th><th>Changed</th></tr></thead>
+            <tbody>
+            {% for event in audit_events %}
+                <tr><td class="nowrap">{{ event.timestamp|date:"Y-m-d H:i:s" }}</td>
+                    <td>{{ event.actor_username }}</td><td>{{ event.action }}</td>
+                    <td class="muted">{{ event.changed_fields|join:", "|truncatechars:60 }}</td></tr>
+            {% empty %}
+                <tr><td colspan="4" class="empty">No changes recorded.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

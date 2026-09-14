@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Results worklist{% endblock %}
+{% block page_title %}Results worklist{% endblock %}
+{% block page_subtitle %}<div class="subtitle">Orders awaiting entry, technical validation or clinical verification</div>{% endblock %}
+
+{% block content %}
+<form method="get" class="filters">
+    <div class="field">
+        <label for="q">Search</label>
+        <input type="search" id="q" name="q" value="{{ filters.q|default:'' }}" placeholder="Accession, MRN or surname">
+    </div>
+    <div class="field">
+        <label for="status">Status</label>
+        <select id="status" name="status">
+            <option value="">All open</option>
+            {% for value, label in statuses %}
+                <option value="{{ value }}" {% if filters.status == value %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+        </select>
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-primary" type="submit">Filter</button>
+        <a class="btn" href="{% url 'laboratory:results' %}">Reset</a>
+    </div>
+</form>
+
+<div class="card">
+    <div class="card-header"><h3>{{ page_obj.paginator.count }} open order{{ page_obj.paginator.count|pluralize }}</h3></div>
+    <div class="card-body flush">
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr>
+                    <th>Accession</th><th>Patient</th><th>Tests</th><th>Entered</th>
+                    <th>Priority</th><th>Status</th><th>Queue</th><th>Age</th><th></th>
+                </tr></thead>
+                <tbody>
+                {% for order in page_obj %}
+                    <tr>
+                        <td class="mono">{{ order.accession_number }}</td>
+                        <td>{{ order.patient.full_name }}<div class="muted mono" style="font-size:11px">{{ order.patient.mrn }}</div></td>
+                        <td class="muted">{% for test in order.tests.all %}{{ test.code }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+                        <td>{{ order.results.count }} / {{ order.tests.count }}</td>
+                        <td>{% if order.priority == "STAT" %}<span class="badge badge-danger">STAT</span>{% else %}{{ order.priority }}{% endif %}</td>
+                        <td>{{ order.status|status_badge }}</td>
+                        <td class="muted">{{ order.queue.name|default:"—" }}</td>
+                        <td class="nowrap">{{ order.turnaround_hours|floatformat:1 }}h</td>
+                        <td class="right"><a class="btn btn-sm btn-primary" href="{% url 'laboratory:result_entry' order.pk %}">Enter</a></td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="9" class="empty">Nothing awaiting results.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% include "partials/pagination.html" %}
+</div>
+{% endblock %}

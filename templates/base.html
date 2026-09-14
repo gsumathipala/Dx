@@ -1,0 +1,51 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Dx{% endblock %} · Dx LIS</title>
+    <link rel="stylesheet" href="{% static 'css/dx.css' %}">
+    {% block extra_head %}{% endblock %}
+</head>
+<body>
+<div class="shell">
+    {% include "partials/sidebar.html" %}
+
+    <div class="main">
+        <div class="topbar">
+            <div>
+                <h2>{% block page_title %}{% endblock %}</h2>
+                {% block page_subtitle %}{% endblock %}
+            </div>
+            <div class="btn-group no-print">{% block page_actions %}{% endblock %}</div>
+        </div>
+
+        <div class="content">
+            {# Regulatory and system banners #}
+            {% if dx_integrity_alerts %}
+                <div class="alert alert-error">
+                    <strong>Audit integrity alert.</strong>
+                    {{ dx_integrity_alerts }} unacknowledged chain verification failure{{ dx_integrity_alerts|pluralize }}.
+                    <a href="{% url 'audit:integrity' %}">Review now</a>.
+                </div>
+            {% endif %}
+            {% if dx_password_expires_in is not None %}
+                <div class="alert alert-warning">
+                    Your password expires in {{ dx_password_expires_in }} day{{ dx_password_expires_in|pluralize }}.
+                    <a href="{% url 'compliance:password_change' %}">Change it now</a>.
+                </div>
+            {% endif %}
+            {% for alert in dx_active_alerts %}
+                <div class="alert alert-{{ alert.type }}">{{ alert.message }}</div>
+            {% endfor %}
+            {% for message in messages %}
+                <div class="alert alert-{{ message.tags|default:'info' }}">{{ message }}</div>
+            {% endfor %}
+
+            {% block content %}{% endblock %}
+        </div>
+    </div>
+</div>
+{% block extra_body %}{% endblock %}
+</body>
+</html>

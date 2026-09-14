@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Backup &amp; maintenance{% endblock %}
+{% block page_title %}Backup and maintenance{% endblock %}
+{% block content %}
+<div class="stat-grid">
+    <div class="stat"><div class="label">Audit events</div><div class="value">{{ audit_events }}</div></div>
+    <div class="stat {% if audit_protection %}ok{% else %}danger{% endif %}">
+        <div class="label">Append-only protection</div>
+        <div class="value">{% if audit_protection %}Active{% else %}ABSENT{% endif %}</div>
+        <div class="delta">Database triggers</div></div>
+    <div class="stat {% if recorder_running %}ok{% else %}danger{% endif %}">
+        <div class="label">Recorder</div><div class="value">{% if recorder_running %}Running{% else %}Stopped{% endif %}</div>
+        <div class="delta">{{ queue_depth }} queued</div></div>
+    <div class="stat {% if spool_exists %}warn{% else %}ok{% endif %}">
+        <div class="label">Unwritten events</div>
+        <div class="value">{% if spool_exists %}Present{% else %}None{% endif %}</div>
+        <div class="delta">Spool file</div></div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Operational procedures</h3></div>
+    <div class="card-body">
+        <p class="muted" style="margin-top:0">
+            These operations are deliberately run from the command line rather than
+            the web interface, so they appear in the shell history and can be
+            supervised, scheduled and captured by configuration management.
+        </p>
+        <table class="data">
+            <tr><th style="width:280px">Database backup</th>
+                <td><span class="mono">pg_dump --format=custom dx &gt; dx-$(date +%F).dump</span></td></tr>
+            <tr><th>Verify audit chain</th>
+                <td><span class="mono">manage.py verify_audit_chain --checkpoint</span></td></tr>
+            <tr><th>Run the audit worker</th>
+                <td><span class="mono">manage.py audit_worker --verify-interval 3600</span></td></tr>
+            <tr><th>Replay unwritten audit events</th>
+                <td><span class="mono">{{ spool_path }}</span> — replayed automatically by the audit worker</td></tr>
+            <tr><th>Restore from backup</th>
+                <td>Restoring requires the append-only triggers to be dropped and
+                    reinstated; use <span class="mono">apps.audit.protection.unprotected()</span>,
+                    then re-verify the chain immediately afterwards.</td></tr>
+        </table>
+    </div>
+</div>
+
+{% if audit_checkpoint %}
+<div class="card">
+    <div class="card-header"><h3>Last chain verification</h3>
+        <a class="btn btn-sm" href="{% url 'audit:integrity' %}">Integrity</a></div>
+    <div class="card-body">
+        <p style="margin:0">{{ audit_checkpoint.detail }}</p>
+        <p class="muted" style="margin:6px 0 0">{{ audit_checkpoint.created_at|date:"Y-m-d H:i:s" }}</p>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

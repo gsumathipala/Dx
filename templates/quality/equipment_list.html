@@ -1,0 +1,9 @@
+{% extends "generic/list.html" %}
+{% block content %}
+<div class="alert alert-info">
+    CLIA 42 CFR §493.1254 requires instruments to be maintained and calibrated at
+    the manufacturer's stated intervals. An instrument past its calibration date
+    is shown in red and should not be used to produce reportable results.
+</div>
+{{ block.super }}
+{% endblock %}
