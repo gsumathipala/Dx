@@ -2,6 +2,50 @@
 
 All notable changes to the Dx Clinical LIS project will be documented in this file.
 
+## [v3.0.0] - 2026-09-15
+### ⭐ Major Release: Rewritten on Django and PostgreSQL
+
+### Changed
+- **Stack**: Replaced Next.js + Drizzle/SQLite with Django 5.2 + PostgreSQL. The
+  React frontend is gone; every screen is a server-rendered Django template, so
+  there is no Node.js dependency or build step.
+- **Instrument server**: Reimplemented in Python (standard library only),
+  speaking ASTM E1381/E1394 and HL7 v2 MLLP.
+
+### Added
+- **Immutable audit trail**: SHA-256 hash-chained events covering every change,
+  enforced append-only by PostgreSQL triggers as well as the ORM, with a
+  persistent recorder thread, disk spooling and scheduled chain verification.
+- **Enforced regulatory controls**: 21 CFR Part 11 electronic signatures with
+  re-authentication, CLIA competency gating, QC lockout, independent-review
+  blocking, CAP critical value read-back, proficiency testing, method
+  validation, CAPA, risk register, change control, HIPAA PHI access logging and
+  disclosure accounting, and the CLIA record retention schedule.
+  See `docs/REGULATORY.md`.
+- **Interoperability**: FHIR R4 resources and HL7 v2 ORU^R01 export.
+- **Migration path**: `manage.py import_legacy` moves the SQLite database
+  across, reconciling on business keys and reporting rows it cannot convert.
+
+### Fixed
+- **Authentication bypass**: the `auth_session` cookie was an unsigned JSON user
+  object that around 46 routes trusted for identity and role.
+- **Duplicate accession numbers** under concurrent accessioning.
+- **One-sided reference ranges** never produced a High/Low flag.
+- **Delta checks** compared against later results and treated an unchanged
+  value as a decrease.
+- **Demographic reference intervals** were applied to patients of unknown age
+  or sex.
+- **Reagent consumption** matched by substring and could decrement the wrong
+  item.
+- **Silent write failures**: `writeDb` swallowed errors and reported success.
+- **Date rendering** shifted dates, including dates of birth, by one day.
+
+### Removed
+- The Next.js application, Drizzle schema and migrations, and the TypeScript
+  instrument server (recoverable from commit `c2ce325`).
+- `docs/FEATURES.md` and `docs/USER_GUIDE.md`, which documented screens and API
+  routes that no longer exist, and screenshots of the removed React interface.
+
 ## [v2.0.1] - 2025-12-27
 ### Fixed
 - **Critical Data Persistence**: Fixed bug where `patients` and `testDefinitions` were not being saved to the database file.
