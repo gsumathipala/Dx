@@ -5,6 +5,12 @@ How to use the system, by role and by task.
 For installing it, see [INSTALL.md](../INSTALL.md). For which regulation each
 control satisfies, see [REGULATORY.md](REGULATORY.md).
 
+> **A fuller help library is built into the application** at **Help** in the
+> sidebar (`/help/`): 64 topics covering every component, step-by-step
+> tutorials, and the laboratory practice behind each feature. Every screen also
+> carries a **?** button that opens the topic explaining it. This manual is the
+> condensed version; the library is the reference.
+
 ---
 
 ## Contents

@@ -49,6 +49,7 @@ def _installer_workspace(user):
         NavItem("Configuration", "operations:setting_list", "settings"),
         NavItem("Settings index", "operations:settings_index", "list"),
         NavItem("My password", "compliance:password_change", "key"),
+        NavItem("Help", "help:index", "book-open"),
     ]
 
 
@@ -95,6 +96,7 @@ def _oversight(user):
         NavItem("Turnaround", "operations:tat", "clock", user.is_lab_staff),
         NavItem("Settings", "operations:settings_index", "settings", user.is_manager),
         NavItem("My password", "compliance:password_change", "key"),
+        NavItem("Help", "help:index", "book-open"),
     ]
 
 

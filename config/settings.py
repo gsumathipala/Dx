@@ -56,6 +56,7 @@ INSTALLED_APPS = [
     "apps.reporting",
     "apps.interop",
     "apps.compliance",
+    "apps.help",
 ]
 
 MIDDLEWARE = [

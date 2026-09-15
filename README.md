@@ -74,6 +74,10 @@ system, by role and by task, is in **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)*
 The API surface and the rules any new endpoint must follow are in
 **[docs/API.md](docs/API.md)**.
 
+A full help library — 64 topics covering every part of the system, with
+tutorials and the laboratory practice behind each feature — is built into the
+application at **Help** in the sidebar, or `/help/`.
+
 ### Running the audit worker
 
 The web process records audit events in-thread. In production, also run the

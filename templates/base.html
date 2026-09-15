@@ -17,7 +17,14 @@
                 <h2>{% block page_title %}{% endblock %}</h2>
                 {% block page_subtitle %}{% endblock %}
             </div>
-            <div class="btn-group no-print">{% block page_actions %}{% endblock %}</div>
+            <div class="btn-group no-print">
+                {% block page_actions %}{% endblock %}
+                {% if request.resolver_match.view_name %}
+                    <a class="btn btn-help"
+                       href="{% url 'help:contextual' %}?for={{ request.resolver_match.view_name }}"
+                       title="Help for this screen" aria-label="Help for this screen">?</a>
+                {% endif %}
+            </div>
         </div>
 
         <div class="content">

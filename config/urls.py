@@ -25,6 +25,7 @@ urlpatterns = [
     path("interop/", include("apps.interop.urls")),
     path("audit/", include("apps.audit.urls")),
     path("compliance/", include("apps.compliance.urls")),
+    path("help/", include("apps.help.urls")),
     path("", include("apps.operations.urls")),
 ]
 

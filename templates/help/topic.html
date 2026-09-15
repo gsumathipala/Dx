@@ -1,0 +1,47 @@
+{% extends "help/_base.html" %}
+{% block title %}{{ topic.title }} · Help{% endblock %}
+{% block page_subtitle %}<div class="subtitle">{{ section.title }}</div>{% endblock %}
+
+{% block help_content %}
+<div class="card">
+    <div class="card-body">
+        <p class="muted" style="font-size:12px;margin:0 0 6px">
+            <a href="{% url 'help:index' %}">Help</a> ›
+            <a href="{% url 'help:section' section.slug %}">{{ section.title }}</a>
+        </p>
+        <h1 class="help-title">{{ topic.title }}</h1>
+        {% if topic.summary %}<p class="help-summary">{{ topic.summary }}</p>{% endif %}
+        {% if topic.audience %}
+            <p class="muted" style="font-size:12px;margin:0">
+                Written for: {{ topic.audience|join:", " }}
+            </p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="help-body-layout">
+    <article class="card help-article">
+        <div class="card-body">{{ content|safe }}</div>
+    </article>
+
+    {% if toc %}
+        <aside class="help-toc">
+            <div class="help-toc-title">On this page</div>
+            {{ toc|safe }}
+        </aside>
+    {% endif %}
+</div>
+
+<div class="card">
+    <div class="card-body help-pager">
+        {% if previous_topic %}
+            <a class="btn" href="{% url 'help:topic' previous_topic.section_slug previous_topic.slug %}">
+                ← {{ previous_topic.title }}</a>
+        {% else %}<span></span>{% endif %}
+        {% if next_topic %}
+            <a class="btn btn-primary" href="{% url 'help:topic' next_topic.section_slug next_topic.slug %}">
+                {{ next_topic.title }} →</a>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

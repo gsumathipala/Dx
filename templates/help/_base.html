@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block page_title %}Help{% endblock %}
+{% block page_actions %}
+    <form method="get" action="{% url 'help:search' %}" class="btn-group">
+        <input type="search" name="q" value="{{ help_query }}" placeholder="Search help…"
+               style="width:220px" aria-label="Search help">
+        <button class="btn" type="submit">Search</button>
+    </form>
+{% endblock %}
+
+{% block content %}
+<div class="help-layout">
+    <nav class="help-nav" aria-label="Help contents">
+        <a class="help-home" href="{% url 'help:index' %}">Help library</a>
+        {% for nav_section in sections %}
+            <div class="help-nav-section">
+                <a class="help-nav-title{% if section.slug == nav_section.slug %} active{% endif %}"
+                   href="{% url 'help:section' nav_section.slug %}">{{ nav_section.title }}</a>
+                {% if section.slug == nav_section.slug %}
+                    <div class="help-nav-topics">
+                        {% for nav_topic in nav_section.topics %}
+                            <a class="help-nav-topic{% if topic.slug == nav_topic.slug %} active{% endif %}"
+                               href="{% url 'help:topic' nav_section.slug nav_topic.slug %}">{{ nav_topic.title }}</a>
+                        {% endfor %}
+                    </div>
+                {% endif %}
+            </div>
+        {% endfor %}
+    </nav>
+
+    <div class="help-main">
+        {% block help_content %}{% endblock %}
+    </div>
+</div>
+{% endblock %}

@@ -1,0 +1,36 @@
+{% extends "help/_base.html" %}
+{% block title %}{{ section.title }} · Help{% endblock %}
+{% block page_subtitle %}<div class="subtitle">{{ section.title }}</div>{% endblock %}
+
+{% block help_content %}
+<div class="card">
+    <div class="card-body">
+        <p class="muted" style="font-size:12px;margin:0 0 6px">
+            <a href="{% url 'help:index' %}">Help</a> ›
+        </p>
+        <h2 style="margin-top:0">{{ section.title }}</h2>
+        {% if section.summary %}<p class="muted">{{ section.summary }}</p>{% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body flush">
+        <table class="data">
+            <tbody>
+            {% for item in section.topics %}
+                <tr>
+                    <td style="width:300px">
+                        <a href="{% url 'help:topic' section.slug item.slug %}">
+                            <strong>{{ item.title }}</strong></a>
+                        {% if "tutorial" in item.keywords %}
+                            <span class="badge badge-info">tutorial</span>
+                        {% endif %}
+                    </td>
+                    <td class="muted">{{ item.summary }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

@@ -31,7 +31,7 @@ CLINICAL_NAMESPACES = frozenset({
 #: patient content. Anything not listed here and not clinical is allowed.
 SYSTEM_NAMESPACES = frozenset({
     "accounts", "operations", "audit", "compliance", "interop", "inventory",
-    "quality", "admin",
+    "quality", "admin", "help",
 })
 
 #: Individual views inside otherwise-permitted namespaces that do expose

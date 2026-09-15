@@ -1,0 +1,38 @@
+{% extends "help/_base.html" %}
+{% block title %}Search help{% endblock %}
+{% block page_subtitle %}
+    {% if query %}<div class="subtitle">{{ hits|length }} result{{ hits|length|pluralize }} for "{{ query }}"</div>{% endif %}
+{% endblock %}
+
+{% block help_content %}
+<div class="card">
+    <div class="card-body">
+        <form method="get">
+            <div class="field">
+                <label for="q">Search the help library</label>
+                <input type="search" id="q" name="q" value="{{ query }}" autofocus
+                       placeholder="westgard, delta check, accession, amend…">
+            </div>
+            <button class="btn btn-primary" type="submit">Search</button>
+        </form>
+    </div>
+</div>
+
+{% for hit in hits %}
+<div class="card">
+    <div class="card-body">
+        <a href="{% url 'help:topic' hit.topic.section_slug hit.topic.slug %}">
+            <strong>{{ hit.topic.title }}</strong></a>
+        <span class="muted"> · {{ hit.topic.section_slug|cut:"0"|cut:"1"|cut:"-" }}</span>
+        <p class="muted" style="margin:6px 0 0">{{ hit.excerpt }}</p>
+    </div>
+</div>
+{% empty %}
+    {% if query %}
+        <div class="card"><div class="card-body"><div class="empty">
+            Nothing matched "{{ query }}". Try a broader term, or
+            <a href="{% url 'help:index' %}">browse the library</a>.
+        </div></div></div>
+    {% endif %}
+{% endfor %}
+{% endblock %}

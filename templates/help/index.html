@@ -1,0 +1,66 @@
+{% extends "help/_base.html" %}
+{% block title %}Help{% endblock %}
+{% block page_subtitle %}
+    <div class="subtitle">{{ topic_count }} topics across {{ sections|length }} sections</div>
+{% endblock %}
+
+{% block help_content %}
+<div class="card">
+    <div class="card-body">
+        <h2 style="margin-top:0">Dx help library</h2>
+        <p class="muted">
+            Every part of the system, explained — what a screen does, how to use it,
+            and the laboratory practice behind it. Where a rule comes from a
+            regulation, the topic says which one and why it exists, so you can tell
+            a deliberate control from a bug.
+        </p>
+        <p class="muted" style="margin-bottom:0">
+            New here? Start with
+            <a href="{% url 'help:topic' 'getting-started' 'what-dx-is' %}">What Dx is</a>,
+            then
+            <a href="{% url 'help:topic' 'getting-started' 'your-first-hour' %}">Your first hour</a>.
+        </p>
+    </div>
+</div>
+
+{% if tutorials %}
+<div class="card">
+    <div class="card-header"><h3>Step-by-step tutorials</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <tbody>
+            {% for item in tutorials %}
+                <tr>
+                    <td style="width:300px">
+                        <a href="{% url 'help:topic' item.section_slug item.slug %}">
+                            <strong>{{ item.title }}</strong></a>
+                    </td>
+                    <td class="muted">{{ item.summary }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
+{% for entry in sections %}
+<div class="card">
+    <div class="card-header">
+        <h3><a href="{% url 'help:section' entry.slug %}">{{ entry.title }}</a></h3>
+        <span class="muted">{{ entry.topics|length }} topic{{ entry.topics|length|pluralize }}</span>
+    </div>
+    <div class="card-body">
+        {% if entry.summary %}<p class="muted" style="margin-top:0">{{ entry.summary }}</p>{% endif %}
+        <div class="help-topic-grid">
+            {% for item in entry.topics %}
+                <a class="help-topic-card" href="{% url 'help:topic' entry.slug item.slug %}">
+                    <strong>{{ item.title }}</strong>
+                    <span class="muted">{{ item.summary }}</span>
+                </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+{% endfor %}
+{% endblock %}
