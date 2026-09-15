@@ -20,7 +20,14 @@ NON_GET_ROUTES = {
     "accounts:logout", "audit:run_verification", "audit:acknowledge",
     "clinical:submit_epidemiology", "reporting:document_acknowledge",
     "billing:generate", "instrument_ingest",
+    "instrument_host_query", "inbound_hl7",
+    "compliance:subject_request_create",
 }
+
+#: Namespaces whose routes authenticate with a bearer token rather than a
+#: session, so a logged-in browser is correctly refused. They are exercised by
+#: tests/test_api.py instead.
+TOKEN_AUTHENTICATED_NAMESPACES = ("api:",)
 
 
 def all_url_names() -> list[str]:
@@ -85,6 +92,8 @@ class RouteSmokeTests(TestCase):
         failures = []
         for name in all_url_names():
             if name in NON_GET_ROUTES or name.startswith(("admin:", "django-admin")):
+                continue
+            if name.startswith(TOKEN_AUTHENTICATED_NAMESPACES):
                 continue
             args = self._args_for(name)
             try:

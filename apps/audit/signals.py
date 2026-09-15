@@ -28,7 +28,7 @@ logger = logging.getLogger("dx.audit")
 AUDITED_APP_LABELS = {
     "accounts", "patients", "laboratory", "clinical", "quality",
     "inventory", "specialty", "operations", "billing", "reporting",
-    "interop", "compliance",
+    "interop", "compliance", "rules", "api",
 }
 
 #: Models excluded from automatic capture — either they *are* the trail, or
@@ -42,10 +42,19 @@ EXCLUDED_MODELS = {
     "admin.LogEntry",
     "contenttypes.ContentType",
     "auth.Permission",
+    # Rule firings and webhook attempts are their own evidential records, and
+    # both are high-volume: a busy day produces tens of thousands of rows whose
+    # content is already retained on the row itself. Capturing them again would
+    # bury genuine changes in machine chatter. The *rules* that produced them
+    # are audited, which is what an inspector asks about.
+    "rules.RuleExecution",
+    "api.WebhookDelivery",
 }
 
 #: Never written to the trail in clear text.
-SENSITIVE_FIELDS = {"password", "token", "secret", "api_key", "salt"}
+SENSITIVE_FIELDS = {
+    "password", "token", "secret", "api_key", "salt", "secret_hash", "passphrase",
+}
 
 #: Events that must not be lost, so they are written synchronously.
 BLOCKING_ACTIONS = {

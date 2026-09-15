@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+{% block title %}{{ rule.name }}{% endblock %}
+{% block page_title %}{{ rule.name }}{% endblock %}
+{% block page_subtitle %}<div class="subtitle">{{ rule.status_label }}</div>{% endblock %}
+{% block page_actions %}
+    <a class="btn" href="{% url 'rules:rule_update' rule.pk %}">Edit</a>
+    <a class="btn" href="{% url 'rules:rule_list' %}">All rules</a>
+{% endblock %}
+
+{% block content %}
+{% if not rule.is_approved %}
+    <div class="alert alert-warning">
+        Version {{ rule.version }} has not been approved, so this rule is not
+        firing. {% if rule.approved_version %}Version {{ rule.approved_version }}
+        was approved, but the rule has been edited since.{% endif %}
+    </div>
+{% endif %}
+{% if not rule.conditions.exists %}
+    <div class="alert alert-warning">
+        This rule has no conditions and will match every result it is evaluated
+        against.
+    </div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>What it does</h3></div>
+    <div class="card-body">
+        <p>{{ rule.description|default:"No description given." }}</p>
+        <dl class="detail-grid">
+            <dt>Trigger</dt><dd>{{ rule.get_trigger_display }}</dd>
+            <dt>Applies to</dt>
+            <dd>{% if rule.test %}{{ rule.test.code }} — {{ rule.test.name }}{% else %}Every test{% endif %}</dd>
+            <dt>Department</dt><dd>{{ rule.department.name|default:"Every department" }}</dd>
+            <dt>Priority</dt><dd>{{ rule.priority }}{% if rule.stop_on_match %} — stops later rules on a match{% endif %}</dd>
+            <dt>Version</dt><dd>{{ rule.version }}</dd>
+            <dt>Approved</dt>
+            <dd>{% if rule.is_approved %}v{{ rule.approved_version }} by {{ rule.approved_by.get_full_name }} on {{ rule.approved_at|date:"j F Y, H:i" }}{% else %}Not approved{% endif %}</dd>
+            <dt>Change control</dt><dd>{{ rule.change_control|default:"—" }}</dd>
+        </dl>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Conditions</h3></div>
+    <div class="card-body">
+        {% for group, conditions in conditions_by_group %}
+            {% if not forloop.first %}<p class="muted"><strong>OR</strong></p>{% endif %}
+            <ul class="plain">
+                {% for condition in conditions %}
+                    <li>{% if not forloop.first %}<span class="muted">and</span> {% endif %}{{ condition.describe }}</li>
+                {% endfor %}
+            </ul>
+        {% empty %}
+            <p class="muted">No conditions — matches everything.</p>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Actions</h3></div>
+    <div class="card-body">
+        <ul class="plain">
+            {% for action in rule.actions.all %}<li>{{ action.describe }}</li>{% empty %}<li class="muted">No actions.</li>{% endfor %}
+        </ul>
+        {% if rule.has_auto_verify %}
+            <div class="callout">
+                <strong>This rule can release results automatically.</strong>
+                It still cannot release a critical value, a delta-flagged result,
+                anything outside its reference interval, a non-numeric result, a
+                result on an analyte the laboratory has not approved for
+                automatic release, or anything at all while quality control for
+                that analyte is out of control. Each release is signed by the
+                rule, at the version that fired, and can be overridden by any
+                laboratory user.
+            </div>
+        {% endif %}
+    </div>
+</div>
+
+{% if can_approve %}
+<div class="card">
+    <div class="card-header"><h3>Approve version {{ rule.version }}</h3></div>
+    <div class="card-body">
+        <form method="post" action="{% url 'rules:rule_approve' rule.pk %}">
+            {% csrf_token %}
+            {{ approval_form.as_p }}
+            <button class="btn btn-primary" type="submit">Sign and put into service</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Try it against a real order</h3></div>
+    <div class="card-body">
+        <form method="get" class="filters">
+            {{ simulation_form.as_p }}
+            <button class="btn" type="submit">Simulate</button>
+        </form>
+        {% if simulation %}
+            {% if simulation.error %}
+                <div class="alert alert-error">{{ simulation.error }}</div>
+            {% else %}
+                {% for trial in simulation.trials %}
+                    <h4>{{ trial.test_code }} = {{ trial.value }}
+                        — {% if trial.matches %}<span class="flag">matches</span>{% else %}no match{% endif %}</h4>
+                    <table class="data">
+                        <thead><tr><th>Condition</th><th>Group</th><th>Fact</th><th>Holds</th></tr></thead>
+                        <tbody>
+                        {% for condition in trial.conditions %}
+                            <tr>
+                                <td>{{ condition.description }}</td>
+                                <td>{{ condition.group }}</td>
+                                <td class="mono">{{ condition.fact }}</td>
+                                <td>{{ condition.holds|yesno:"yes,no" }}</td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                {% endfor %}
+                <p class="muted">Nothing above was applied — this is a dry run.</p>
+            {% endif %}
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Recent firings</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>When</th><th>Test</th><th>Outcome</th><th></th></tr></thead>
+            <tbody>
+            {% for execution in recent %}
+                <tr>
+                    <td class="nowrap">{{ execution.fired_at|date:"j M Y H:i" }}</td>
+                    <td class="mono">{{ execution.test_code }}</td>
+                    <td>{{ execution.get_outcome_display }}{% if execution.auto_verified %} — autoverified{% endif %}</td>
+                    <td class="right"><a class="btn btn-sm" href="{% url 'rules:execution_detail' execution.pk %}">Open</a></td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="4" class="empty">This rule has not fired yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

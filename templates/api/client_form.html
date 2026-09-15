@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_title %}{{ page_title }}{% endblock %}
+{% block content %}
+<div class="card">
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <div class="btn-group">
+                <button class="btn btn-primary" type="submit">Save</button>
+                <a class="btn" href="{% url 'integrations:client_list' %}">Cancel</a>
+            </div>
+        </form>
+        {% if is_update %}
+        <hr>
+        <form method="post" action="{% url 'integrations:client_rotate' client.pk %}">
+            {% csrf_token %}
+            <p class="muted">
+                Rotating issues a new secret and stops the old one working
+                immediately. There is no grace period — that is the point.
+            </p>
+            <button class="btn btn-danger" type="submit">Rotate the secret</button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

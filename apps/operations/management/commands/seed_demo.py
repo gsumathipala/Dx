@@ -84,6 +84,8 @@ class Command(BaseCommand):
             self._qc(tests, departments)
             self._inventory(tests)
             self._rules(tests)
+            self._terminology()
+            self._decision_rules(tests, users)
             self._billing(tests)
             patients = self._patients()
             self._orders(patients, tests, users)
@@ -305,6 +307,151 @@ class Command(BaseCommand):
                       "timeframe": "24h", "created_at": timezone.now()},
         )[0]
         condition.tests.add(tests["CULT"])
+
+    def _terminology(self):
+        """A handful of ICD-10 codes, enough to demonstrate coded indications.
+
+        Not a catalogue. A laboratory populates this from whatever
+        authoritative source it is entitled to use.
+        """
+        from apps.interop.models import Icd10Code
+
+        for code, description, chapter in [
+            ("E11.9", "Type 2 diabetes mellitus without complications",
+             "Endocrine, nutritional and metabolic diseases"),
+            ("E87.1", "Hypo-osmolality and hyponatraemia",
+             "Endocrine, nutritional and metabolic diseases"),
+            ("E87.5", "Hyperkalaemia",
+             "Endocrine, nutritional and metabolic diseases"),
+            ("N18.3", "Chronic kidney disease, stage 3",
+             "Diseases of the genitourinary system"),
+            ("D50.9", "Iron deficiency anaemia, unspecified",
+             "Diseases of the blood and blood-forming organs"),
+            ("E03.9", "Hypothyroidism, unspecified",
+             "Endocrine, nutritional and metabolic diseases"),
+            ("R55", "Syncope and collapse",
+             "Symptoms, signs and abnormal clinical findings"),
+            ("A09", "Infectious gastroenteritis and colitis, unspecified",
+             "Certain infectious and parasitic diseases"),
+        ]:
+            Icd10Code.objects.get_or_create(
+                code=code,
+                defaults={"description": description, "chapter": chapter,
+                          "category": code.split(".")[0], "billable": True},
+            )
+
+    def _decision_rules(self, tests, users):
+        """Three worked examples of the rules engine.
+
+        Two append interpretive comments — which is what most laboratories
+        build first — and one demonstrates autoverification on a single analyte
+        the "laboratory" has explicitly permitted. All three are approved, so
+        they actually fire in the demonstration.
+        """
+        from apps.rules.models import Rule, RuleAction, RuleCondition
+
+        approver = users.get("lmanager")
+
+        def approve(rule):
+            rule.approved_by = approver
+            rule.approved_at = timezone.now()
+            rule.approved_version = rule.version
+            rule.save(update_fields=["approved_by", "approved_at", "approved_version"])
+
+        # ── 1. Haemolysis suppression note on potassium ──────────────────────
+        rule, created = Rule.objects.get_or_create(
+            name="Haemolysis — potassium suppression note",
+            defaults={
+                "description": (
+                    "Potassium leaks from red cells in vitro. A haemolysed "
+                    "specimen gives a number that is real as a measurement and "
+                    "wrong as a clinical fact. Warn the requester rather than "
+                    "reporting it alone."
+                ),
+                "trigger": Rule.Trigger.RESULT_ENTERED,
+                "test": tests["K"],
+                "priority": 50,
+            },
+        )
+        if created:
+            RuleCondition.objects.create(
+                rule=rule, group=0, subject=RuleCondition.Subject.RESULT_VALUE,
+                operator=RuleCondition.Operator.GT, value="5.5",
+            )
+            RuleCondition.objects.create(
+                rule=rule, group=0, subject=RuleCondition.Subject.SPECIMEN_CONDITION,
+                operator=RuleCondition.Operator.EQ, value="Marginal", position=1,
+            )
+            RuleAction.objects.create(
+                rule=rule, kind=RuleAction.Kind.APPEND_COMMENT,
+                text=(
+                    "Potassium may be falsely elevated: specimen recorded as "
+                    "haemolysed at reception. Suggest repeat on a fresh sample "
+                    "if clinically unexpected."
+                ),
+            )
+            approve(rule)
+
+        # ── 2. Interpretive note on a markedly raised random glucose ─────────
+        rule, created = Rule.objects.get_or_create(
+            name="Raised random glucose — fasting sample advised",
+            defaults={
+                "description": (
+                    "A single raised random glucose is not a diagnosis. Point "
+                    "the requester at the next step rather than at a number."
+                ),
+                "trigger": Rule.Trigger.RESULT_ENTERED,
+                "test": tests["GLU"],
+                "priority": 60,
+            },
+        )
+        if created:
+            RuleCondition.objects.create(
+                rule=rule, group=0, subject=RuleCondition.Subject.RESULT_VALUE,
+                operator=RuleCondition.Operator.GTE, value="11.1",
+            )
+            RuleAction.objects.create(
+                rule=rule, kind=RuleAction.Kind.APPEND_COMMENT,
+                text=(
+                    "Random glucose at or above 11.1 mmol/L. If the patient is "
+                    "symptomatic this supports a diagnosis of diabetes; if not, "
+                    "a repeat fasting sample or HbA1c is required for "
+                    "confirmation."
+                ),
+            )
+            RuleAction.objects.create(
+                rule=rule, kind=RuleAction.Kind.SET_FLAG, flag="Review", position=1,
+            )
+            approve(rule)
+
+        # ── 3. Autoverification, on one analyte, explicitly permitted ────────
+        sodium = tests["NA"]
+        if not sodium.auto_verify_permitted:
+            sodium.auto_verify_permitted = True
+            sodium.save(update_fields=["auto_verify_permitted"])
+
+        rule, created = Rule.objects.get_or_create(
+            name="Autoverify routine sodium",
+            defaults={
+                "description": (
+                    "Release routine sodium without human review. Every "
+                    "guardrail still applies: in-control QC, numeric, within "
+                    "the patient's reference interval, no critical value, no "
+                    "delta flag, no other flag, acceptable specimen, no open "
+                    "exception on the order."
+                ),
+                "trigger": Rule.Trigger.RESULT_ENTERED,
+                "test": sodium,
+                "priority": 200,
+            },
+        )
+        if created:
+            RuleCondition.objects.create(
+                rule=rule, group=0, subject=RuleCondition.Subject.ORDER_PRIORITY,
+                operator=RuleCondition.Operator.EQ, value="Routine",
+            )
+            RuleAction.objects.create(rule=rule, kind=RuleAction.Kind.AUTO_VERIFY)
+            approve(rule)
 
     def _billing(self, tests):
         from apps.billing.models import BillingItem

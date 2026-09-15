@@ -19,28 +19,31 @@ Related: [USER_MANUAL.md](USER_MANUAL.md) · [REGULATORY.md](REGULATORY.md) ·
 3. [Authentication](#3-authentication)
 4. [Conventions](#4-conventions)
 5. [Errors](#5-errors)
-6. [Endpoints that exist today](#6-endpoints-that-exist-today)
-7. [Webhooks](#7-webhooks)
-8. [Adding an endpoint: checklist](#8-adding-an-endpoint-checklist)
+6. [The v1 API](#6-the-v1-api)
+7. [Service endpoints](#7-service-endpoints)
+8. [Webhooks](#8-webhooks)
+9. [Adding an endpoint: checklist](#9-adding-an-endpoint-checklist)
 
 ---
 
 ## 1. Status of the API
 
-Dx is a server-rendered application. It is **not** API-first, and there is no
-general REST or GraphQL surface yet.
+Dx is a server-rendered application with a **versioned JSON API alongside it**.
 
-What exists today is a small set of purpose-built endpoints:
+| Surface | Base | Authentication |
+| --- | --- | --- |
+| Public API | `/api/v1/` | Client credentials (bearer token), scoped |
+| Instrument middleware | `/api/middleware/` | Shared bearer token |
+| Inbound HL7 v2 | `/api/middleware/hl7/` | Shared bearer token |
+| Host query | `/api/middleware/query/` | Shared bearer token |
+| FHIR / HL7 export | `/interop/` | Session |
+| Audit verification | `/audit/api/verify/` | Session |
+| Health probe | `/healthz/` | None |
 
-| Purpose | Style |
-| --- | --- |
-| Instrument result ingest | JSON over HTTPS, bearer token |
-| FHIR R4 export | JSON, session authenticated |
-| HL7 v2 export | Plain text, session authenticated |
-| Audit chain verification | JSON, session authenticated |
-| Health probe | JSON, unauthenticated |
-
-A general API is planned. Until it lands, these rules govern anything added.
+There is no GraphQL surface, and none is planned. A laboratory's read patterns
+are narrow and well known; GraphQL's cost here is an arbitrary query engine
+sitting in front of patient data, which is a very large thing to have to
+secure in exchange for saving a few round trips.
 
 ---
 
@@ -67,6 +70,10 @@ default.
 If your endpoint lives in an existing system namespace but returns patient
 content, add its view name to `BARRED_VIEW_NAMES` instead.
 
+The `rules` and `api` namespaces are both listed as clinical. Rule executions
+record the patient facts a rule saw — an age, a sex, a diagnosis code and an
+analyte value identify a person far more readily than most people expect.
+
 ### R3 — Reading patient data is logged
 
 Disclosure of identifiable patient information is recorded for HIPAA
@@ -89,7 +96,12 @@ PHI_VIEWS = {
 Model signals capture every create, update and delete in the Dx applications,
 with field-level diffs and the acting user. You do not need to log anything.
 
-The exception is **bulk operations**: `bulk_create`, `bulk_update` and
+Two things are deliberately excluded from automatic capture, because both are
+already their own evidential record and both are high-volume:
+`rules.RuleExecution` and `api.WebhookDelivery`. The *rules* that produce them
+are audited, which is what an inspector asks about.
+
+The other exception is **bulk operations**: `bulk_create`, `bulk_update` and
 `QuerySet.update` emit no signals. If your endpoint uses them, either record a
 summary event yourself with `apps.audit.recorder.record(...)` or wrap the block
 in `suppress_auditing()` so the omission is deliberate and visible.
@@ -101,7 +113,17 @@ electronic signature under 21 CFR Part 11 §11.200. It must re-authenticate the
 caller, via `apps.compliance.services.apply_signature`.
 
 A token alone is not a signature. A bearer token identifies a *service*; a
-signature identifies a *person* at the moment of signing.
+signature identifies a *person* at the moment of signing. This is why the v1
+API can place orders and read results but cannot verify or release one: there
+is no person on the other end of a client credential to sign.
+
+The one exception is **autoverification**, where the signer is a decision rule
+rather than a person. That is not a loophole in this rule — it is the rule
+taken seriously. `ElectronicSignature.signer` is null and `automated_rule`
+names the rule at the version that fired, so a report released this way says
+"no human review" in its signature manifest. Recording a person who never
+looked at the result would be false attribution, a graver finding than having
+no human signature at all.
 
 ### R6 — Regulatory gates are enforced in the service layer, not the view
 
@@ -152,7 +174,20 @@ Browser endpoints use Django's session cookie. Cookies are `HttpOnly`,
 `SameSite=Strict`, and `Secure` when `DEBUG` is off. CSRF protection applies to
 every unsafe method.
 
-### Bearer token (services)
+### Client credentials (the v1 API)
+
+`/api/v1/` uses a per-client credential, `<key id>.<secret>`, presented as a
+bearer token. The key id is an indexed lookup; the secret is checked against a
+password hash, so a leaked database gives an attacker nothing usable. An
+unknown key id and a wrong secret are refused identically and take the same
+time, so probing reveals nothing.
+
+Each client carries its own scopes, rate limit, optional IP allow-list and
+optional expiry, and can be disabled or rotated without disturbing any other.
+Rotation takes effect immediately — there is no grace period, which is the
+point of rotating.
+
+### Shared bearer token (the laboratory's own middleware)
 
 Service-to-service endpoints use a shared secret in the `Authorization`
 header:
@@ -177,7 +212,10 @@ Rules for token endpoints:
 
 ### What does not exist
 
-No OAuth2, no API keys per user, no JWT. Do not assume them.
+No OAuth2, no per-user API keys, no JWT, no refresh tokens. A client credential
+identifies a *system*, not a person, and there is no delegated-authority flow.
+If an integration needs to act as a named person — to sign a verification, say —
+it cannot: see R5.
 
 ---
 
@@ -220,10 +258,27 @@ timezone-aware values; never emit a naive one.
 
 ### Pagination
 
-Not yet standardised, because no collection endpoint exists. When one is added:
-`?limit=` and `?offset=`, a `count` in the body, and a default limit — an
-unbounded collection endpoint over patient data is a data-exfiltration
-primitive.
+Every collection is paginated. An unbounded collection endpoint over patient
+data is a data-exfiltration primitive, so there is no way to ask for all of it.
+
+```
+GET /api/v1/orders/?page=2&page_size=100
+```
+
+`page_size` defaults to 50 and is capped at 200. The body is:
+
+```json
+{
+  "data": [ ... ],
+  "page": {
+    "number": 2, "size": 100, "total_pages": 7,
+    "total_items": 683, "has_next": true
+  }
+}
+```
+
+A page beyond the end returns an empty `data` array, not a 404 — walking a
+collection until it is empty must not require handling an error.
 
 ### Content types
 
@@ -268,11 +323,134 @@ is actually a control working correctly.
 
 ---
 
-## 6. Endpoints that exist today
+## 6. The v1 API
+
+### Getting a credential
+
+An administrator issues one at **Settings → API clients**. The token is shown
+**once**, at creation, in the form `<key id>.<secret>`. It is stored as a
+password hash; a system that can show you a credential again is a system that
+stores it in a form an attacker can use.
+
+```http
+GET /api/v1/ HTTP/1.1
+Authorization: Bearer 3f2a91c4de70b118.qKZ9p2vN-aXr…
+```
+
+`GET /api/v1/` is the discovery endpoint. It returns the server time, the
+client's granted scopes and a map of every endpoint, so an integration can
+check what it is allowed to do without guessing.
+
+### Scopes
+
+| Scope | Grants | Touches PHI |
+| --- | --- | --- |
+| `catalogue:read` | Test catalogue, LOINC, ICD-10 | No |
+| `patients:read` | Patient demographics | Yes |
+| `patients:write` | Register and update patients | Yes |
+| `orders:read` | Orders and their diagnoses | Yes |
+| `orders:write` | Place orders | Yes |
+| `results:read` | Results | Yes |
+| `reports:read` | Reports as JSON, FHIR or HL7 | Yes |
+| `exceptions:read` | The exception queue | Yes |
+| `webhooks:manage` | The client's own webhook subscriptions | No |
+
+Grant the least that will do the job. HIPAA's minimum necessary standard
+(45 CFR §164.502(b)) is not satisfied by "we gave them everything and trust
+them", and a client holding a PHI scope is recorded as a recipient on every
+read it performs.
+
+### Rate limiting
+
+A fixed window per client per minute, default 120, set per client. Exceeding it
+returns `429` with `retry_after` in seconds. The purpose is to stop a looping
+integration exhausting the database, not to meter usage.
+
+### Endpoints
+
+#### Catalogue — `catalogue:read`
+
+| Endpoint | Notes |
+| --- | --- |
+| `GET /api/v1/tests/` | `?q=`, `?department=`, `?active=1` |
+| `GET /api/v1/icd10/` | `?q=` matches code prefix or description; `?billable=1` |
+| `GET /api/v1/loinc/` | `?q=` matches code prefix or long name |
+
+#### Patients — `patients:read` / `patients:write`
+
+| Endpoint | Notes |
+| --- | --- |
+| `GET /api/v1/patients/` | `?mrn=` exact, `?q=` name or MRN |
+| `GET /api/v1/patients/<id>/` | |
+| `POST /api/v1/patients/new/` | `mrn`, `first_name`, `last_name`, `date_of_birth` required |
+
+Registering an MRN that already exists is **not an error**. It returns `200`
+with `"created": false` and the existing record, so an integration retrying a
+timed-out request cannot produce a duplicate patient.
+
+`date_of_birth` is required because age drives reference intervals, critical
+limits and several decision rules. A patient registered without one silently
+degrades all three.
+
+#### Orders — `orders:read` / `orders:write`
+
+| Endpoint | Notes |
+| --- | --- |
+| `GET /api/v1/orders/` | `?status=`, `?patient=`, `?mrn=`, `?since=` (ISO 8601) |
+| `GET /api/v1/orders/<id>/` | Includes results |
+| `POST /api/v1/orders/new/` | |
+
+```json
+POST /api/v1/orders/new/
+{
+  "mrn": "MRN001",
+  "tests": ["GLU", "HBA1C"],
+  "priority": "STAT",
+  "specimen_type": "Serum",
+  "ordered_by": "Dr Jones",
+  "diagnoses": [{"code": "E11.9", "type": "working"}]
+}
+```
+
+The whole order is created or none of it is. An unknown test code or an unknown
+ICD-10 code returns `422` and writes nothing — a partially-created order is
+worse than no order, because somebody will draw blood for it.
+
+#### Results and reports — `results:read` / `reports:read`
+
+| Endpoint | Notes |
+| --- | --- |
+| `GET /api/v1/orders/<id>/results/` | `?verified_only=1` |
+| `GET /api/v1/orders/<id>/report/` | `?format=json` (default), `fhir`, `hl7` |
+
+A result carries `"autoverified": true` when it was released by a decision rule
+rather than read by a person. Anything consuming results clinically should
+surface that distinction.
+
+#### Exception queue — `exceptions:read`
+
+`GET /api/v1/exceptions/` — `?status=open` (default), `resolved`, `dismissed`,
+`all`; `?source=`, `?severity=`.
+
+#### Webhooks — `webhooks:manage`
+
+| Endpoint | Notes |
+| --- | --- |
+| `GET /api/v1/webhooks/` | The calling client's own subscriptions only |
+| `POST /api/v1/webhooks/new/` | Returns the signing secret, once |
+| `GET /api/v1/webhooks/<id>/` | |
+| `DELETE /api/v1/webhooks/<id>/` | |
+
+---
+
+## 7. Service endpoints
+
+These authenticate with the shared `INSTRUMENT_INGEST_TOKEN` rather than a
+client credential, because the caller is the laboratory's own middleware.
 
 ### `POST /api/middleware/ingest/`
 
-Receives parsed instrument results. **Bearer token.**
+Receives parsed instrument results.
 
 ```json
 {
@@ -288,24 +466,96 @@ Receives parsed instrument results. **Bearer token.**
 | Response | Meaning |
 | --- | --- |
 | `200 {"applied": 4, "errors": []}` | All results written |
-| `422 {"applied": 0, "errors": [...]}` | Nothing actionable — unknown accession, unmapped test code |
+| `422 {"applied": 0, "errors": [...]}` | Nothing actionable |
 | `400` | Unparsable JSON. The raw payload is still stored. |
 | `401` | Missing or wrong token |
 
+The raw payload is retained as an `InstrumentMessage` whatever happens,
+`interface.test_code_map` translates the instrument's codes, writes are
+attributed to `instrument:<name>`, and the full clinical and decision-rule
+engines run exactly as they do for manual entry.
+
+### `POST /api/middleware/query/` — host query
+
+The other half of a bidirectional interface. An analyser reads a barcode and
+asks what to run; the middleware translates its ASTM `Q` record or HL7
+`QBP^Q11` into this call.
+
+```json
+{"specimen_id": "2026-09-15-0007", "interface_id": "971dd681-…"}
+```
+
+```json
+{
+  "specimen_id": "2026-09-15-0007",
+  "status": "answered",
+  "tests": ["GLU", "K"],
+  "accession": "2026-09-15-0007",
+  "detail": ""
+}
+```
+
+| `status` | Meaning |
+| --- | --- |
+| `answered` | Tests are outstanding; run them |
+| `no_work` | The order is complete, cancelled, or every test already has a result |
+| `not_found` | No order, specimen or container matches the identifier |
+| `refused` | The interface is configured unidirectional — `409` |
+
+Notes worth knowing:
+
+* The identifier is matched against the accession number first, then the
+  specimen container id. An aliquot is itself a specimen, so a daughter tube's
+  barcode resolves too.
+* Test codes are returned **in the analyser's own vocabulary**, by inverting
+  `interface.test_code_map`.
+* Being asked about a specimen moves the order to *In Progress*. That is the
+  earliest reliable signal a sample is in analysis, and more accurate than
+  anyone remembering to press a button.
+* Every query is recorded as a `HostQuery`, because "the analyser says it was
+  never told to run that" is a real dispute.
+
+### `POST /api/middleware/hl7/` — inbound orders and patient administration
+
+The body is a raw HL7 v2 message. The response is always an HL7 ACK, because an
+integration engine parses the ACK and will retry forever on anything else.
+
+| Message | Effect |
+| --- | --- |
+| `ORM^O01`, `OML^O21` with `ORC-1 = NW` | Accession an order |
+| `ORM^O01` with `ORC-1 = CA` | Cancel the order with that placer number |
+| `ADT^A01/A04/A05/A08/A28/A31` | Register or update a patient |
+| `ADT^A40` | Merge one MRN into another |
+
+| ACK | HTTP | Meaning |
+| --- | --- | --- |
+| `AA` | 200 | Accepted and applied |
+| `AE` | 422 | Understood and refused — do not retry unchanged |
+| `AR` | 400 | Could not be parsed |
+
+`AE` and `AR` are kept distinct deliberately. A sender that gets `AE` knows the
+message is wrong; one that gets `AR` knows it is malformed. Conflating them is
+why integration failures take days to diagnose.
+
 Behaviour worth knowing:
 
-* The raw payload is retained as an `InstrumentMessage` whatever happens, so a
-  disputed result can be traced to what the analyser actually sent.
-* `interface.test_code_map` translates the instrument's codes to Dx test codes.
-* Results are written under the interface's identity
-  (`instrument:<name>`), never a person's.
-* The full clinical engine runs: delta checks, critical values, reflex rules
-  and notifiable conditions.
+* Identity is the **MRN and nothing else**. Matching on name and date of birth
+  would merge two different people who share both, which happens more often
+  than intuition suggests and is unrecoverable once results are attached.
+* A retransmitted order with a placer number that already exists returns
+  `"action": "duplicate"` rather than accessioning a second specimen.
+* A merge repoints orders onto the surviving record and **retains** the old
+  one, flagged as merged. Deleting it would break the audit trail's references.
+* `DG1` segments become ICD-10 diagnoses on the order. A code absent from the
+  local catalogue is still recorded — the hospital's coding is the record, even
+  when our table lags it.
+* A refused message raises an item on the exception queue, so a rejection is
+  seen by a person rather than living in an integration log.
 
 ### `GET /interop/fhir/DiagnosticReport/<order>/`
 
-FHIR R4 `DiagnosticReport`. Add `?bundle=1` for a self-contained `Bundle` with
-the `Patient` and every `Observation`. Session authenticated; logged as a PHI
+FHIR R4 `DiagnosticReport`. `?bundle=1` for a self-contained `Bundle` with the
+`Patient` and every `Observation`. Session authenticated; logged as a PHI
 disclosure.
 
 ### `GET /interop/hl7/oru/<order>/`
@@ -325,38 +575,99 @@ Returns `409` when the chain fails, so a monitor can alert on status alone.
 
 ### `GET /healthz/`
 
-Unauthenticated liveness probe.
+Unauthenticated liveness probe. Deliberately reveals nothing beyond liveness
+and audit-recorder health.
+
+---
+
+## 8. Webhooks
+
+A subscription is created through the API (`webhooks:manage`) or at
+**Settings → Webhooks**. Each delivery is an HTTP `POST` of:
 
 ```json
-{"status": "ok", "audit_recorder": "running", "audit_queue_depth": 0}
+{
+  "id": "1f0c…",
+  "event": "result.verified",
+  "created_at": "2026-09-15T14:30:00+00:00",
+  "data": { ... }
+}
 ```
 
-Deliberately reveals nothing beyond liveness and audit-recorder health.
+### Events
+
+| Event | Fired when |
+| --- | --- |
+| `order.created` | An order is accessioned, however it arrived |
+| `order.completed` | Every analyte on an order is verified |
+| `result.entered` | A result is entered or corrected |
+| `result.verified` | A result is clinically verified |
+| `report.released` | A report is released for distribution |
+| `report.amended` | A released report is corrected |
+| `critical_value.raised` | A result breaches a panic limit |
+| `exception.raised` | An item reaches the exception queue |
+| `qc.failed` | A quality control run fails |
+
+### Verifying a delivery
+
+```
+X-Dx-Event: result.verified
+X-Dx-Delivery: 1f0c…
+X-Dx-Signature: t=1789567800,v1=6c3f…
+```
+
+`v1` is `HMAC-SHA256(secret, "<t>." + raw body)`, hex encoded. Recompute it over
+the **raw** bytes, compare in constant time, and reject anything whose `t` is
+more than five minutes old. A captured payload is then useless to replay.
+
+The reference implementation is `apps.api.webhooks.verify`, which is the same
+function the tests exercise:
+
+```python
+def verify(secret, body, header, tolerance=300):
+    parts = dict(p.split("=", 1) for p in header.split(",") if "=" in p)
+    timestamp = int(parts["t"])
+    if abs(time.time() - timestamp) > tolerance:
+        return False
+    expected = hmac.new(
+        secret.encode(), f"{timestamp}.".encode() + body, hashlib.sha256
+    ).hexdigest()
+    return hmac.compare_digest(expected, parts["v1"])
+```
+
+### What a payload contains
+
+**Direct identifiers are stripped by default.** A patient's surrogate id
+survives; the MRN, name, date of birth and contact details are replaced with
+`[redacted]`. A subscriber entitled to the detail fetches it over the API,
+where the read is authenticated, scoped and recorded as a disclosure — a
+webhook body, by contrast, lands in somebody's application log.
+
+A subscription may set `include_identifiers` where the receiving system is
+itself a covered entity and the disclosure is accounted for. That is a decision
+somebody has to make deliberately, which is why it is off by default.
+
+### Delivery guarantees
+
+* **Fired after commit.** A rolled-back transaction never emits an event
+  claiming something happened.
+* **Retried with backoff** — roughly 30s, 2m, 8m, 30m, 2h — up to six attempts.
+* **HTTPS only.** An `http://` subscription is refused at creation.
+* **A persistently failing subscriber is disabled** after twenty consecutive
+  failures, and raises an exception queue item so somebody is told. An
+  integration that quietly stopped working is how a ward finds out about a
+  critical result by telephone three days later.
+
+Delivery is performed by a worker, so a slow subscriber cannot stall result
+entry:
+
+```bash
+python manage.py deliver_webhooks --forever --interval 15
+```
 
 ---
 
-## 7. Webhooks
-
-**Not implemented.** When they are, these rules apply:
-
-* **Signed.** HMAC-SHA256 of the body with a per-subscription secret, in
-  `X-Dx-Signature`. Receivers must compare in constant time.
-* **Replay-resistant.** Include a timestamp in the signed material and reject
-  anything stale.
-* **No patient data in the payload.** Send an event type and a record
-  reference; the receiver fetches the detail over an authenticated endpoint
-  that logs the disclosure. A webhook body lands in logs and queues you do not
-  control.
-* **Retried with backoff, and spooled.** Never dropped silently.
-* **Fired after commit**, never from inside the transaction — a rolled-back
-  transaction must not emit an event that claims something happened.
-
-Planned events: `order.created`, `result.entered`, `result.verified`,
-`report.released`, `report.amended`, `critical_value.raised`, `qc.failed`.
-
----
-
-## 8. Adding an endpoint: checklist
+## 9. Adding an endpoint: checklist
 
 - [ ] Roles declared explicitly (R1)
 - [ ] If it returns patient data: namespace listed in `CLINICAL_NAMESPACES`, or

@@ -67,3 +67,15 @@ Those are where integrations break, and they break in production.
 **Decide about amendments.** How does the receiving system show a corrected
 result? If it simply overwrites, a clinician may never learn the first answer
 was wrong.
+
+
+## Getting results out programmatically
+
+The exports above are for a person pressing a button. For another *system*,
+see [the REST API](/help/integrations/the-rest-api/) — which serves the same
+FHIR and HL7 representations over an authenticated, scoped, logged endpoint —
+and [webhooks](/help/integrations/webhooks/), which tell a subscriber a report
+is ready rather than making it ask.
+
+Orders coming the other way, from the hospital, are covered in
+[orders arriving from the hospital](/help/integrations/inbound-orders/).

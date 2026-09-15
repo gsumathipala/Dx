@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }}{% endblock %}
+{% block page_title %}{{ item.title }}{% endblock %}
+{% block page_subtitle %}
+<div class="subtitle">{{ item.get_source_display }} — {{ item.get_severity_display }} — raised {{ item.raised_at|date:"j F Y, H:i" }}</div>
+{% endblock %}
+{% block page_actions %}<a class="btn" href="{% url 'operations:exception_list' %}">Queue</a>{% endblock %}
+
+{% block content %}
+{% if item.is_overdue %}
+    <div class="alert alert-error">This item is past its deadline ({{ item.due_at|date:"j F Y, H:i" }}).</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Detail</h3></div>
+    <div class="card-body">
+        <p>{{ item.detail|linebreaksbr }}</p>
+        <dl class="detail-grid">
+            <dt>Status</dt><dd>{{ item.get_status_display }}</dd>
+            <dt>Seen</dt><dd>{{ item.occurrences }} time{{ item.occurrences|pluralize }}, last {{ item.last_seen_at|date:"j M Y H:i" }}</dd>
+            {% if item.order %}
+            <dt>Order</dt><dd class="mono">{{ item.order.accession_number }}</dd>
+            {% endif %}
+            {% if item.test_code %}<dt>Test</dt><dd class="mono">{{ item.test_code }}</dd>{% endif %}
+            {% if item.assigned_to %}<dt>Assigned to</dt><dd>{{ item.assigned_to.get_full_name }}</dd>{% endif %}
+            {% if item.acknowledged_by %}
+            <dt>Acknowledged</dt><dd>{{ item.acknowledged_by.get_full_name }} on {{ item.acknowledged_at|date:"j M Y H:i" }}</dd>
+            {% endif %}
+            {% if item.resolution %}
+            <dt>Resolution</dt><dd>{{ item.resolution }}</dd>
+            {% endif %}
+            {% if item.corrective_action %}
+            <dt>Corrective action</dt><dd>{{ item.corrective_action.reference }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+</div>
+
+{% if item.is_open %}
+<div class="card">
+    <div class="card-header"><h3>Act on it</h3></div>
+    <div class="card-body">
+        {% if item.status == 'open' %}
+        <form method="post" action="{% url 'operations:exception_acknowledge' item.pk %}" class="inline">
+            {% csrf_token %}
+            <button class="btn" type="submit">Acknowledge and take it</button>
+        </form>
+        {% endif %}
+        <form method="post" action="{% url 'operations:exception_resolve' item.pk %}">
+            {% csrf_token %}
+            {{ form.as_p }}
+            <button class="btn btn-primary" type="submit">Close</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

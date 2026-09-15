@@ -78,7 +78,25 @@ def create_order(*, patient, tests, ordered_by: str, priority: str = "Routine",
             status="Collected",
         )
 
+    _emit("order.created", {
+        "order_id": str(order.pk),
+        "accession_number": order.accession_number,
+        "patient": {"id": str(order.patient_id), "mrn": patient.mrn},
+        "priority": order.priority,
+        "tests": [test.code for test in tests],
+        "ordered_by": ordered_by,
+    })
     return order
+
+
+def _emit(event: str, payload: dict) -> None:
+    """Fire a webhook event without ever letting it break the caller."""
+    try:
+        from apps.api.webhooks import emit
+
+        emit(event, payload)
+    except Exception:
+        logger.exception("Could not emit %s", event)
 
 
 class ResultEntryError(Exception):
@@ -126,6 +144,10 @@ def save_results(
     tests = {t.id: t for t in TestDefinition.objects.filter(id__in=values.keys())}
     engine_outcomes: dict[str, dict] = {}
     touched: list[Result] = []
+    #: (test, result, executions) for results a rule asked to autoverify. The
+    #: attempt happens after the order has settled — a guardrail that reads the
+    #: order's status has to read the final one.
+    autoverify_candidates: list[tuple] = []
 
     for test_id, raw_value in values.items():
         test = tests.get(test_id)
@@ -156,6 +178,7 @@ def save_results(
             result.save(update_fields=["result_flags"])
             consume_reagent(test, user.username)
             engine_outcomes[test.code] = run_clinical_engine(order, test, result, user.username)
+            _run_rules(order, test, result, user, action, autoverify_candidates)
         else:
             existing.value = str(raw_value)
             existing.status = status
@@ -170,6 +193,7 @@ def save_results(
             if not is_validation:
                 # A corrected value must be re-assessed by the clinical rules.
                 engine_outcomes[test.code] = run_clinical_engine(order, test, result, user.username)
+            _run_rules(order, test, result, user, action, autoverify_candidates)
 
         touched.append(result)
 
@@ -192,6 +216,27 @@ def save_results(
     if queue is not None:
         order.queue = queue
     order.save(update_fields=["status", "updated_at", "completed_at", "queue"])
+
+    # ── Automatic verification (decision rules) ──────────────────────────────
+    #
+    # Deliberately after the order transition: several guardrails read the
+    # order's status, its exceptions and its specimen condition, and they have
+    # to see the settled state rather than the state mid-save.
+    autoverified = []
+    if not is_validation and autoverify_candidates:
+        from apps.rules.autoverify import attempt
+
+        for candidate_test, candidate_result, executions in autoverify_candidates:
+            try:
+                if attempt(order, candidate_test, candidate_result, executions):
+                    autoverified.append(candidate_result)
+            except Exception:
+                logger.exception(
+                    "Autoverification failed for %s on %s",
+                    candidate_test.code, order.accession_number,
+                )
+        if autoverified:
+            order.refresh_from_db()
 
     # ── Electronic signature (21 CFR Part 11) ────────────────────────────────
     signature = None
@@ -238,12 +283,76 @@ def save_results(
         blocking=is_validation,
     )
 
+    _emit_result_events(order, touched, action)
+
     return {
         "order": order,
         "results": touched,
         "signature": signature,
         "engine": engine_outcomes,
+        "autoverified": autoverified,
     }
+
+
+def _run_rules(order, test, result, user, action, candidates: list) -> None:
+    """Evaluate the rule set against a result, collecting autoverify requests.
+
+    A failure in the rule engine must never lose a result that has already been
+    written, so everything here is contained. The laboratory sees a warning;
+    the patient's potassium is still recorded.
+    """
+    from apps.rules.engine import run_for_result
+    from apps.rules.models import Rule
+
+    trigger = (
+        Rule.Trigger.RESULT_VALIDATED
+        if action == AuditAction.TECHNICAL_VALIDATE
+        else Rule.Trigger.RESULT_ENTERED
+    )
+    try:
+        outcome = run_for_result(
+            order, test, result, trigger=trigger, entered_by=user.username
+        )
+    except Exception:
+        logger.exception("Rule evaluation failed for %s", test.code)
+        return
+
+    if outcome["auto_verify_requested"]:
+        candidates.append((test, result, outcome["executions"]))
+
+
+def _emit_result_events(order, results, action) -> None:
+    """Tell webhook subscribers what happened. Never blocks the transaction."""
+    from apps.api.webhooks import emit
+
+    try:
+        if action == AuditAction.CLINICAL_VERIFY:
+            emit("result.verified", {
+                "order_id": str(order.pk),
+                "accession_number": order.accession_number,
+                "patient": {"id": str(order.patient_id)},
+                "results": [
+                    {"test_code": row.test_key, "value": row.value,
+                     "flags": row.result_flags or []}
+                    for row in results if not row.is_report_row
+                ],
+            })
+            if order.status == OrderStatus.COMPLETED:
+                emit("order.completed", {
+                    "order_id": str(order.pk),
+                    "accession_number": order.accession_number,
+                    "patient": {"id": str(order.patient_id)},
+                    "completed_at": order.completed_at.isoformat() if order.completed_at else None,
+                })
+        else:
+            emit("result.entered", {
+                "order_id": str(order.pk),
+                "accession_number": order.accession_number,
+                "patient": {"id": str(order.patient_id)},
+                "test_codes": [row.test_key for row in results if not row.is_report_row],
+            })
+    except Exception:
+        logger.exception("Could not emit result webhooks for %s", order.accession_number)
 
 
 @transaction.atomic
@@ -329,6 +438,32 @@ def amend_report(*, order, result, corrected_value, reason, narrative, user,
         reason=narrative,
         blocking=True,
     )
+
+    _emit("report.amended", {
+        "order_id": str(order.pk),
+        "accession_number": order.accession_number,
+        "patient": {"id": str(order.patient_id)},
+        "version": version,
+        "test_code": result.test_key,
+        "reason": reason,
+    })
+
+    from apps.operations.exceptions import ExceptionSource, raise_exception
+
+    raise_exception(
+        source=ExceptionSource.AMENDED_REPORT,
+        source_key=f"amendment:{amendment.pk}",
+        title=f"Report {order.accession_number} amended after release",
+        detail=(
+            f"{result.test_key} corrected from {original_value} to {corrected_value}. "
+            f"Reason: {reason}. Confirm the requesting clinician has been told."
+        ),
+        severity="high",
+        order=order,
+        test_code=result.test_key,
+        entity_type="compliance.AmendedReport",
+        entity_id=amendment.pk,
+    )
     return amendment
 
 
@@ -389,7 +524,7 @@ def release_report(order, user, *, password: str | None = None, request=None):
             "CLIA 42 CFR §493.1291",
         )
 
-    return apply_signature(
+    signature = apply_signature(
         user=user,
         meaning=ElectronicSignature.Meaning.RELEASE,
         entity_type="laboratory.Order",
@@ -398,3 +533,11 @@ def release_report(order, user, *, password: str | None = None, request=None):
         password=password,
         request=request,
     )
+    _emit("report.released", {
+        "order_id": str(order.pk),
+        "accession_number": order.accession_number,
+        "patient": {"id": str(order.patient_id)},
+        "released_by": user.get_full_name(),
+        "released_at": signature.signed_at.isoformat(),
+    })
+    return signature

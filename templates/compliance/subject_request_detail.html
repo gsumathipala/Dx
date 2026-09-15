@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}{{ record.reference }}{% endblock %}
+{% block page_title %}{{ record.reference }} — {{ record.get_kind_display }}{% endblock %}
+{% block page_subtitle %}
+<div class="subtitle">
+    {{ record.patient.full_name }} ({{ record.patient.mrn }}) —
+    received {{ record.received_at|date:"j F Y" }},
+    due {{ record.due_at|date:"j F Y" }}{% if record.extended %} (extended){% endif %}
+</div>
+{% endblock %}
+{% block page_actions %}<a class="btn" href="{% url 'compliance:subject_request_list' %}">All requests</a>{% endblock %}
+
+{% block content %}
+{% if record.is_overdue %}
+    <div class="alert alert-error">This request is past its statutory deadline.</div>
+{% elif record.days_remaining is not None %}
+    <div class="alert alert-info">{{ record.days_remaining }} day{{ record.days_remaining|pluralize }} remaining.</div>
+{% endif %}
+
+{% if not record.identity_verified %}
+    <div class="alert alert-warning">
+        <strong>Identity not verified.</strong> Nothing may be disclosed or
+        erased until it is. Article 12(6) exists precisely because a request is
+        the easiest way to obtain somebody else's medical record.
+    </div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>The request</h3></div>
+    <div class="card-body">
+        <dl class="detail-grid">
+            <dt>Right</dt><dd>{{ record.get_kind_display }}</dd>
+            <dt>Status</dt><dd>{{ record.get_status_display }}</dd>
+            <dt>Asked by</dt><dd>{{ record.requested_by }} ({{ record.relationship|default:"self" }})</dd>
+            <dt>What was asked</dt><dd>{{ record.detail|default:"—"|linebreaksbr }}</dd>
+            {% if record.identity_verified %}
+            <dt>Identity</dt>
+            <dd>Verified by {{ record.identity_verified_by.get_full_name }} on
+                {{ record.identity_verified_at|date:"j M Y" }} — {{ record.identity_evidence }}</dd>
+            {% endif %}
+            {% if record.outcome %}<dt>Outcome</dt><dd>{{ record.outcome }}</dd>{% endif %}
+            {% if record.refusal_basis %}
+            <dt>Basis for refusal</dt><dd>{{ record.refusal_basis|linebreaksbr }}</dd>
+            {% endif %}
+            {% if record.extension_reason %}
+            <dt>Extension</dt><dd>{{ record.extension_reason }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+</div>
+
+{% if restriction %}
+<div class="alert alert-info">
+    This patient's data is under an Article 18 restriction since
+    {{ restriction.applied_at|date:"j F Y" }}: {{ restriction.reason }}.
+    Clinical care continues — Article 18(2) permits it.
+</div>
+{% endif %}
+
+{% if not record.identity_verified %}
+<div class="card">
+    <div class="card-header"><h3>Verify identity</h3></div>
+    <div class="card-body">
+        <form method="post" action="{% url 'compliance:subject_request_verify' record.pk %}">
+            {% csrf_token %}
+            {{ identity_form.as_p }}
+            <button class="btn btn-primary" type="submit">Record verification</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if exportable and record.identity_verified %}
+<div class="card">
+    <div class="card-header"><h3>Produce the export</h3></div>
+    <div class="card-body">
+        <p class="muted">
+            {% if record.kind == 'portability' %}
+                A FHIR R4 Bundle — structured, commonly used and machine-readable
+                in the sense Article 20(1) means, and actually loadable by
+                another system.
+            {% else %}
+                Demographics, every order and result, the disclosures made, and a
+                statement of the automated decision-making in use — Article 15(1).
+            {% endif %}
+        </p>
+        <form method="post" action="{% url 'compliance:subject_request_export' record.pk %}">
+            {% csrf_token %}
+            {{ export_form.as_p }}
+            <button class="btn btn-primary" type="submit">Encrypt and write</button>
+        </form>
+        {% if record.export_path %}
+            <p><a class="btn" href="{% url 'compliance:subject_request_download' record.pk %}">Download the encrypted export</a></p>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if assessment %}
+<div class="card">
+    <div class="card-header"><h3>Erasure assessment</h3></div>
+    <div class="card-body">
+        <p><strong>{{ assessment.summary }}</strong></p>
+        <ul class="plain">
+            {% for reason in assessment.reasons %}<li>{{ reason }}</li>{% endfor %}
+        </ul>
+        {% if record.identity_verified %}
+        <form method="post" action="{% url 'compliance:subject_request_erase' record.pk %}">
+            {% csrf_token %}
+            <button class="btn btn-danger" type="submit">
+                Erase what may lawfully be erased
+            </button>
+        </form>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{% if record.is_open %}
+<div class="card">
+    <div class="card-header"><h3>Other actions</h3></div>
+    <div class="card-body">
+        {% if not record.extended %}
+        <form method="post" action="{% url 'compliance:subject_request_extend' record.pk %}">
+            {% csrf_token %}
+            {{ extension_form.as_p }}
+            <button class="btn" type="submit">Extend by two months</button>
+        </form>
+        {% endif %}
+        <form method="post" action="{% url 'compliance:subject_request_restrict' record.pk %}">
+            {% csrf_token %}
+            {{ restriction_form.as_p }}
+            <button class="btn" type="submit">Restrict processing (Article 18)</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

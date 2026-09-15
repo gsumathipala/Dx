@@ -29,6 +29,41 @@ class LisClient:
     def ingest_url(self) -> str:
         return f"{self.base_url}/api/middleware/ingest/"
 
+    @property
+    def query_url(self) -> str:
+        return f"{self.base_url}/api/middleware/query/"
+
+    def query(self, specimen_id: str, interface_id: str | None = None) -> dict | None:
+        """Ask the LIS what is ordered for a specimen.
+
+        Never spooled and never retried for long: an analyser holding a tube on
+        the deck is waiting for this answer, and a late reply is worse than a
+        clean "I do not know" — the analyser can park the sample and ask again.
+        """
+        body = json.dumps({
+            "specimen_id": specimen_id, "interface_id": interface_id
+        }).encode("utf-8")
+
+        try:
+            request = urllib.request.Request(
+                self.query_url, data=body, method="POST",
+                headers={"Content-Type": "application/json",
+                         "Authorization": f"Bearer {self.token}"},
+            )
+            with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                answer = json.loads(response.read().decode("utf-8"))
+            logger.info(
+                "Host query for %s → %s test(s) (%s)",
+                specimen_id, len(answer.get("tests") or []), answer.get("status"),
+            )
+            return answer
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", errors="replace")[:200]
+            logger.warning("Host query for %s refused (%s): %s", specimen_id, error.code, detail)
+        except Exception as error:
+            logger.warning("Host query for %s failed: %s", specimen_id, error)
+        return None
+
     def send(self, payload: dict) -> bool:
         """Post one payload, spooling it if every attempt fails."""
         body = json.dumps(payload).encode("utf-8")

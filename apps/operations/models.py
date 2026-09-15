@@ -68,7 +68,12 @@ class Message(IdentifiedModel):
     """Internal messaging between laboratory staff."""
 
     sender = models.ForeignKey(
-        django_settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sent_messages"
+        django_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE,
+        related_name="sent_messages", help_text="Null when the sender is not a person.",
+    )
+    sender_label = models.CharField(
+        max_length=255, blank=True,
+        help_text="Who sent it when no user did — a decision rule, or the system.",
     )
     recipient = models.ForeignKey(
         django_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.CASCADE,
@@ -92,6 +97,17 @@ class Message(IdentifiedModel):
 
     def __str__(self) -> str:
         return self.subject
+
+    @property
+    def from_display(self) -> str:
+        """Who the message is from, human or not.
+
+        A rule-generated message must not appear to come from whoever happened
+        to be logged in when it fired.
+        """
+        if self.sender_id:
+            return self.sender.get_full_name() or self.sender.username
+        return self.sender_label or "System"
 
 
 class Feedback(IdentifiedModel):
@@ -447,3 +463,173 @@ class Aliquot(IdentifiedModel):
 
     def __str__(self) -> str:
         return f"aliquot of {self.parent_id}"
+
+
+# ── Unified exception queue ──────────────────────────────────────────────────
+
+
+class ExceptionSource(models.TextChoices):
+    """Where an exception came from.
+
+    The list is deliberately concrete rather than a free-text 'category'. An
+    exception queue is only useful if you can ask "how many specimen rejections
+    this week", and you cannot ask that of free text.
+    """
+
+    SPECIMEN_REJECTION = "specimen_rejection", "Specimen rejected"
+    CRITICAL_VALUE = "critical_value", "Critical value unacknowledged"
+    DELTA_CHECK = "delta_check", "Delta check flagged"
+    TAT_BREACH = "tat_breach", "Turnaround time breached"
+    QC_FAILURE = "qc_failure", "Quality control failure"
+    INSTRUMENT = "instrument", "Instrument message failed"
+    INTERFACE_STALE = "interface_stale", "Instrument interface silent"
+    INBOUND_MESSAGE = "inbound_message", "Inbound message could not be processed"
+    WEBHOOK = "webhook", "Webhook delivery failing"
+    RULE = "rule", "Raised by a decision rule"
+    AMENDED_REPORT = "amended_report", "Report amended after release"
+    PROFICIENCY = "proficiency", "Proficiency testing deadline"
+    SUBJECT_REQUEST = "subject_request", "Data subject request due"
+    MANUAL = "manual", "Raised by a person"
+
+
+class ExceptionItemQuerySet(models.QuerySet):
+    def open(self):
+        return self.filter(status__in=[
+            ExceptionItem.Status.OPEN, ExceptionItem.Status.ACKNOWLEDGED
+        ])
+
+    def overdue(self):
+        return self.open().filter(due_at__lt=timezone.now())
+
+    def for_user(self, user):
+        """Everything this user could act on: theirs, plus anything unassigned."""
+        return self.open().filter(
+            models.Q(assigned_to=user) | models.Q(assigned_to__isnull=True)
+        )
+
+
+class ExceptionItem(IdentifiedModel):
+    """One thing that needs a person's attention, from anywhere in the system.
+
+    Before this existed the same information was spread across eight screens:
+    rejected specimens on receiving, unacknowledged criticals on the clinical
+    screen, breached turnaround on the TAT report, failed QC on quality, failed
+    instrument messages in the interface log, and so on. Each was watched by
+    whoever remembered to watch it, which is another way of saying some were
+    not watched at all.
+
+    Items are **deduplicated by ``source_key``**: the same underlying problem
+    seen twice increments ``occurrences`` rather than creating a second row, so
+    a sweep can run every minute without flooding the queue.
+
+    Resolution is recorded, not implied. An item that disappears because the
+    underlying condition cleared is still closed explicitly, with a reason, so
+    the queue doubles as a record of what the laboratory actually dealt with —
+    which is what ISO 15189 §8.7 asks for when it requires nonconformities to
+    be managed rather than merely noticed.
+    """
+
+    class Status(models.TextChoices):
+        OPEN = "open", "Open"
+        ACKNOWLEDGED = "acknowledged", "Acknowledged"
+        RESOLVED = "resolved", "Resolved"
+        DISMISSED = "dismissed", "Dismissed"
+
+    class Severity(models.TextChoices):
+        LOW = "low", "Low"
+        MEDIUM = "medium", "Medium"
+        HIGH = "high", "High"
+        CRITICAL = "critical", "Critical"
+
+    source = models.CharField(max_length=32, choices=ExceptionSource.choices)
+    source_key = models.CharField(
+        max_length=255, unique=True,
+        help_text="Stable identity of the underlying problem, for deduplication.",
+    )
+    title = models.CharField(max_length=255)
+    detail = models.TextField(blank=True)
+    severity = models.CharField(
+        max_length=16, choices=Severity.choices, default=Severity.MEDIUM
+    )
+    status = models.CharField(max_length=16, choices=Status.choices, default=Status.OPEN)
+
+    order = models.ForeignKey(
+        "laboratory.Order", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="exceptions",
+    )
+    patient = models.ForeignKey(
+        "patients.Patient", null=True, blank=True, on_delete=models.CASCADE,
+        related_name="exceptions",
+    )
+    test_code = models.CharField(max_length=64, blank=True)
+    entity_type = models.CharField(max_length=64, blank=True)
+    entity_id = models.CharField(max_length=64, blank=True)
+
+    raised_at = models.DateTimeField(default=timezone.now)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+    occurrences = models.PositiveIntegerField(default=1)
+    due_at = models.DateTimeField(null=True, blank=True)
+
+    assigned_to = models.ForeignKey(
+        django_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="assigned_exceptions",
+    )
+    acknowledged_by = models.ForeignKey(
+        django_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="acknowledged_exceptions",
+    )
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    resolved_by = models.ForeignKey(
+        django_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="resolved_exceptions",
+    )
+    resolved_at = models.DateTimeField(null=True, blank=True)
+    resolution = models.TextField(blank=True)
+    corrective_action = models.ForeignKey(
+        "compliance.CorrectiveAction", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="exceptions",
+    )
+
+    objects = ExceptionItemQuerySet.as_manager()
+
+    class Meta:
+        db_table = "exception_queue"
+        # Severity is a readable string, so it does not sort by importance in
+        # SQL. The queue view annotates a rank and orders by that; the default
+        # here is newest-first, which is right for every other use.
+        ordering = ["-raised_at"]
+        indexes = [
+            models.Index(fields=["status", "-raised_at"]),
+            models.Index(fields=["source", "status"]),
+            models.Index(fields=["assigned_to", "status"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.get_source_display()}: {self.title}"
+
+    @property
+    def is_open(self) -> bool:
+        return self.status in (self.Status.OPEN, self.Status.ACKNOWLEDGED)
+
+    @property
+    def is_overdue(self) -> bool:
+        return bool(self.is_open and self.due_at and self.due_at < timezone.now())
+
+    @property
+    def age_hours(self) -> float:
+        return (timezone.now() - self.raised_at).total_seconds() / 3600.0
+
+    @property
+    def accession(self) -> str:
+        return self.order.accession_number if self.order_id else ""
+
+    # ── Redacted views, for roles barred from patient data ───────────────────
+
+    @property
+    def safe_title(self) -> str:
+        """The nature of the problem without the specimen it happened to."""
+        return self.get_source_display()
+
+    @property
+    def safe_detail(self) -> str:
+        return "[redacted — contains patient or specimen detail]"

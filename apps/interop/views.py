@@ -16,7 +16,9 @@ from django.views.decorators.http import require_POST
 
 from apps.common.constants import MANAGEMENT_ROLES, SYSTEM_ROLES
 from apps.common.views import DxListView
-from apps.interop.models import InstrumentInterface, InstrumentMessage, LoincCode
+from apps.interop.models import (
+    HostQuery, Icd10Code, InstrumentInterface, InstrumentMessage, LoincCode,
+)
 from apps.interop.services import diagnostic_report, oru_r01, report_bundle
 
 logger = logging.getLogger("dx.interop")
@@ -221,3 +223,167 @@ class InstrumentMessageListView(DxListView):
                 "raw_payload",
             )
         return queryset
+
+
+# ── Host query: the analyser asking what to run ──────────────────────────────
+
+
+@csrf_exempt
+@require_POST
+def host_query(request):
+    """Answer an analyser's query for a specimen's outstanding tests.
+
+    The instrument server translates the analyser's ASTM ``Q`` record or HL7
+    ``QBP^Q11`` into this call and translates the answer back, so the LIS does
+    not have to speak every analyser's query dialect.
+    """
+    expected = getattr(settings, "INSTRUMENT_INGEST_TOKEN", "")
+    presented = (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+    if not expected or not hmac.compare_digest(presented, expected):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    try:
+        payload = json.loads(request.body.decode("utf-8", errors="replace"))
+    except json.JSONDecodeError as error:
+        return JsonResponse({"error": f"Invalid JSON: {error}"}, status=400)
+
+    identifier = (payload.get("specimen_id") or payload.get("accession") or "").strip()
+    if not identifier:
+        return JsonResponse({"error": "No specimen identifier in the query."}, status=400)
+
+    interface = InstrumentInterface.objects.filter(pk=payload.get("interface_id")).first()
+    if interface is not None and interface.direction != InstrumentInterface.Direction.BIDIRECTIONAL:
+        # Answering a query on a unidirectional interface would hand work to an
+        # analyser the laboratory has not configured to receive it.
+        query = HostQuery.objects.create(
+            interface=interface, specimen_identifier=identifier[:64],
+            status=HostQuery.Status.REFUSED,
+            detail="The interface is configured as unidirectional.",
+        )
+        return JsonResponse({
+            "specimen_id": identifier, "tests": [], "status": query.status,
+            "detail": query.detail,
+        }, status=409)
+
+    from apps.audit.context import audit_as
+    from apps.audit.models import AuditSource
+    from apps.interop.query import answer
+
+    with audit_as(
+        actor_username=f"instrument:{interface.name if interface else 'unknown'}",
+        actor_role="instrument",
+        source=AuditSource.INSTRUMENT,
+    ):
+        query = answer(identifier, interface=interface)
+
+    return JsonResponse({
+        "specimen_id": identifier,
+        "status": query.status,
+        "tests": query.tests,
+        "accession": query.order.accession_number if query.order_id else None,
+        "patient_id": str(query.order.patient_id) if query.order_id else None,
+        "detail": query.detail,
+    })
+
+
+# ── Inbound HL7: orders and patient administration ───────────────────────────
+
+
+@csrf_exempt
+@require_POST
+def inbound_hl7(request):
+    """Accept an ORM/OML order or an ADT patient message and answer with an ACK.
+
+    The body is the raw HL7 message. Responses are always an HL7 ACK with the
+    correct acknowledgement code, because an integration engine parses the ACK
+    and will retry forever on anything else.
+    """
+    expected = getattr(settings, "INSTRUMENT_INGEST_TOKEN", "")
+    presented = (request.headers.get("Authorization") or "").removeprefix("Bearer ").strip()
+    if not expected or not hmac.compare_digest(presented, expected):
+        return JsonResponse({"error": "Unauthorized"}, status=401)
+
+    raw = request.body.decode("utf-8", errors="replace")
+    interface = InstrumentInterface.objects.filter(
+        pk=request.headers.get("X-Dx-Interface") or ""
+    ).first()
+
+    from apps.audit.context import audit_as
+    from apps.audit.models import AuditSource
+    from apps.interop.inbound import build_ack, handle
+
+    message = InstrumentMessage.objects.create(
+        interface=interface,
+        raw_payload=raw[:100_000],
+        status=InstrumentMessage.Status.RECEIVED,
+    )
+
+    with audit_as(
+        actor_username=f"hl7:{interface.name if interface else 'inbound'}",
+        actor_role="interface",
+        source=AuditSource.INSTRUMENT,
+    ):
+        code, detail = handle(raw, interface=interface)
+
+    message.parsed_payload = detail
+    message.accession_number = detail.get("accession")
+    message.status = (
+        InstrumentMessage.Status.APPLIED if code == "AA"
+        else InstrumentMessage.Status.FAILED
+    )
+    message.error = detail.get("error")
+    message.save(update_fields=["parsed_payload", "accession_number", "status", "error"])
+
+    if code != "AA":
+        from apps.operations.exceptions import ExceptionSource, raise_exception
+
+        raise_exception(
+            source=ExceptionSource.INBOUND_MESSAGE,
+            source_key=f"inbound:{message.pk}",
+            title="An inbound HL7 message was refused",
+            detail=detail.get("error") or "The message could not be processed.",
+            severity="high",
+            entity_type="interop.InstrumentMessage",
+            entity_id=message.pk,
+        )
+
+    ack = build_ack(raw, code, detail)
+    status_code = 200 if code == "AA" else 422 if code == "AE" else 400
+    return HttpResponse(
+        ack, content_type="application/hl7-v2; charset=utf-8", status=status_code
+    )
+
+
+class HostQueryListView(DxListView):
+    """The host query log, redacted for roles barred from patient data."""
+
+    model = HostQuery
+    required_roles = MANAGERS_AND_INSTALLER
+    page_title = "Host query log"
+    page_subtitle = "What analysers asked for, and what they were told."
+    search_fields = ["specimen_identifier", "detail"]
+    filter_fields = {"status": "status", "interface": "interface_id"}
+
+    CLINICAL_COLUMNS = [
+        ("Asked", "requested_at", "nowrap"), ("Interface", "interface.name", ""),
+        ("Specimen", "specimen_identifier", "mono"), ("Status", "get_status_display", ""),
+        ("Tests", "test_count", "right"), ("ms", "response_ms", "right"),
+    ]
+    REDACTED_COLUMNS = [
+        ("Asked", "requested_at", "nowrap"), ("Interface", "interface.name", ""),
+        ("Specimen", "safe_identifier", "muted"), ("Status", "get_status_display", ""),
+        ("Answer", "safe_tests", "muted"), ("ms", "response_ms", "right"),
+    ]
+
+    @property
+    def columns(self):
+        if self.request.user.may_see_patient_data:
+            return self.CLINICAL_COLUMNS
+        return self.REDACTED_COLUMNS
+
+
+class Icd10Form(forms.ModelForm):
+    class Meta:
+        model = Icd10Code
+        fields = ["code", "description", "chapter", "category", "billable",
+                  "valid_from", "valid_to"]

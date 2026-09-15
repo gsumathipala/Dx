@@ -56,6 +56,8 @@ INSTALLED_APPS = [
     "apps.reporting",
     "apps.interop",
     "apps.compliance",
+    "apps.rules",
+    "apps.api",
     "apps.help",
 ]
 
@@ -253,6 +255,18 @@ IDLE_TIMEOUT_MINUTES = int(os.environ.get("IDLE_TIMEOUT_MINUTES", "20"))
 REQUIRE_REAUTH_FOR_SIGNATURE = env_bool("REQUIRE_REAUTH_FOR_SIGNATURE", True)
 # Block release of patient results when the day's QC has failed (CLIA §493.1256).
 ENFORCE_QC_LOCKOUT = env_bool("ENFORCE_QC_LOCKOUT", True)
+# Allow decision rules to release results without a person reading them. Even
+# when True, a rule may only release an analyte the laboratory has separately
+# approved on its test definition, and every guardrail in
+# apps/rules/autoverify.py still applies. Set False to stop all automatic
+# release immediately — during a QC investigation, say.
+RULES_ALLOW_AUTO_VERIFICATION = env_bool("RULES_ALLOW_AUTO_VERIFICATION", True)
+
+# Where encrypted GDPR subject-access exports are written.
+SUBJECT_REQUEST_EXPORT_DIR = os.environ.get(
+    "SUBJECT_REQUEST_EXPORT_DIR", str(BASE_DIR / "media" / "subject-requests")
+)
+
 # Block validation by staff without current competency (CLIA §493.1451).
 ENFORCE_COMPETENCY_GATING = env_bool("ENFORCE_COMPETENCY_GATING", True)
 # Prevent the person who entered a result from verifying it (CLIA self-review).
@@ -271,5 +285,6 @@ LOGGING = {
     "loggers": {
         "django.db.backends": {"level": "WARNING", "handlers": ["console"], "propagate": False},
         "dx": {"level": "DEBUG" if DEBUG else "INFO", "handlers": ["console"], "propagate": False},
+        # Rule firings and API traffic are noisy at DEBUG; they inherit "dx".
     },
 }

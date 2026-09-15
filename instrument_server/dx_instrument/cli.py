@@ -33,6 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--replay-interval", type=int, default=60,
                         help="Seconds between spool replay attempts (0 disables).")
     parser.add_argument("--idle-timeout", type=float, default=300.0)
+    parser.add_argument(
+        "--host-query", action="store_true",
+        default=os.environ.get("INSTRUMENT_HOST_QUERY", "").lower() in {"1", "true", "yes"},
+        help=(
+            "Answer analyser work-list queries (ASTM Q records, HL7 QBP^Q11). "
+            "The interface must also be configured as bidirectional in Dx."
+        ),
+    )
     parser.add_argument("--verbose", action="store_true")
     return parser
 
@@ -53,6 +61,7 @@ def main(argv: list[str] | None = None) -> int:
     server = InstrumentServer(
         (args.host, args.port), protocol=args.protocol, client=client,
         interface_id=args.interface_id, idle_timeout=args.idle_timeout,
+        host_query_enabled=args.host_query,
     )
 
     stopping = threading.Event()
@@ -75,8 +84,9 @@ def main(argv: list[str] | None = None) -> int:
         threading.Thread(target=replay_loop, name="spool-replay", daemon=True).start()
 
     logger.info(
-        "Listening on %s:%s (%s) → %s",
+        "Listening on %s:%s (%s) → %s%s",
         args.host, args.port, args.protocol.upper(), client.ingest_url,
+        " [host query enabled]" if args.host_query else "",
     )
     server.serve_forever()
     server.server_close()

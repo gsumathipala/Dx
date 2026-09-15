@@ -1,0 +1,82 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_title %}{{ page_title }}{% endblock %}
+{% block page_subtitle %}
+<div class="subtitle">
+    Conditions in the same group must <em>all</em> hold; any group matching is
+    enough. Actions run in order when the rule matches.
+</div>
+{% endblock %}
+
+{% block content %}
+<form method="post" class="stack">
+    {% csrf_token %}
+
+    <div class="card">
+        <div class="card-header"><h3>The rule</h3></div>
+        <div class="card-body">
+            {{ form.as_p }}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h3>Conditions — when does this fire?</h3>
+        </div>
+        <div class="card-body">
+            <p class="muted">
+                Leave every condition blank to match every result the rule is
+                evaluated against. That is rarely what you want.
+            </p>
+            {{ conditions.management_form }}
+            {% for condition in conditions %}
+                <div class="formset-row">
+                    {{ condition.id }}
+                    {% if condition.non_field_errors %}
+                        <div class="alert alert-error">{{ condition.non_field_errors }}</div>
+                    {% endif %}
+                    <div class="formset-fields">
+                        {% for field in condition.visible_fields %}
+                            <label>{{ field.label }} {{ field }}</label>
+                            {% if field.errors %}<span class="error">{{ field.errors }}</span>{% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header"><h3>Actions — what does it do?</h3></div>
+        <div class="card-body">
+            <p class="muted">
+                <strong>Request automatic verification</strong> does not release
+                anything by itself. Every guardrail still applies: the analyte
+                must be approved for automatic release, quality control must be
+                in control, and the result must be numeric, inside its reference
+                interval, unflagged and not delta-flagged.
+            </p>
+            {{ actions.management_form }}
+            {% for action in actions %}
+                <div class="formset-row">
+                    {{ action.id }}
+                    {% if action.non_field_errors %}
+                        <div class="alert alert-error">{{ action.non_field_errors }}</div>
+                    {% endif %}
+                    <div class="formset-fields">
+                        {% for field in action.visible_fields %}
+                            <label>{{ field.label }} {{ field }}</label>
+                            {% if field.errors %}<span class="error">{{ field.errors }}</span>{% endif %}
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="btn-group">
+        <button class="btn btn-primary" type="submit">Save as draft</button>
+        <a class="btn" href="{% url 'rules:rule_list' %}">Cancel</a>
+    </div>
+</form>
+{% endblock %}

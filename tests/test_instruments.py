@@ -203,3 +203,44 @@ class IngestEndpointTests(TestCase):
             CriticalValueNotification.objects.filter(order=self.order).exists(),
             "an instrument result outside the panic limit must raise a notification",
         )
+
+
+class QueryParsingTests(TestCase):
+    """The analyser asking what to run, rather than reporting what it found."""
+
+    def test_an_astm_query_record_is_recognised(self):
+        message = parse_astm(
+            "H|\\^&|||ARCH-1|||||||P|1\r"
+            "Q|1|^2026-01-01-0001^|||||||||O\r"
+            "L|1|N\r"
+        )
+        self.assertTrue(message.is_query)
+        self.assertEqual(message.queries, ["2026-01-01-0001"])
+        self.assertTrue(message.is_empty)
+
+    def test_a_result_message_is_not_a_query(self):
+        message = parse_astm(
+            "H|\\^&|||ARCH-1|||||||P|1\r"
+            "O|1|2026-01-01-0001||^^^GLU\r"
+            "R|1|^^^GLU|5.4|mmol/L||N||F\r"
+        )
+        self.assertFalse(message.is_query)
+        self.assertEqual(len(message.results), 1)
+
+    def test_an_hl7_qpd_segment_is_recognised(self):
+        message = parse_hl7(
+            "MSH|^~\\&|ARCH|LAB|DX|LAB|20260101120000||QBP^Q11|MSG1|P|2.5\r"
+            "QPD|SLI^Specimen labelling instructions|Q1|2026-01-01-0001\r"
+            "RCP|I\r"
+        )
+        self.assertTrue(message.is_query)
+        self.assertEqual(message.queries, ["2026-01-01-0001"])
+
+    def test_several_specimens_can_be_queried_in_one_message(self):
+        message = parse_astm(
+            "H|\\^&|||ARCH-1|||||||P|1\r"
+            "Q|1|^TUBE-1^|||||||||O\r"
+            "Q|2|^TUBE-2^|||||||||O\r"
+            "L|1|N\r"
+        )
+        self.assertEqual(message.queries, ["TUBE-1", "TUBE-2"])

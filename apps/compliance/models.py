@@ -47,9 +47,19 @@ class ElectronicSignature(IdentifiedModel):
         ACKNOWLEDGEMENT = "acknowledgement", "Acknowledged by"
         CORRECTION = "correction", "Corrected by"
         TRAINING = "training", "Training completed by"
+        AUTO_VERIFICATION = "auto_verification", "Autoverified by rule"
 
+    #: Null when the signer is not a person. A result released by a decision
+    #: rule is signed by the rule, at the version that fired — recording the
+    #: user who happened to be in session would be false attribution, which is
+    #: a graver Part 11 finding than having no human signature at all.
     signer = models.ForeignKey(
-        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="electronic_signatures"
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.PROTECT,
+        related_name="electronic_signatures",
+    )
+    automated_rule = models.ForeignKey(
+        "rules.Rule", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="signatures", help_text="Set when the signer is a rule, not a person.",
     )
     signer_printed_name = models.CharField(
         max_length=255, help_text="Captured at signing time — §11.50(a)(1)"
@@ -86,8 +96,21 @@ class ElectronicSignature(IdentifiedModel):
         return f"{self.get_meaning_display()} {self.signer_printed_name} @ {self.signed_at:%Y-%m-%d %H:%M}"
 
     @property
+    def is_automated(self) -> bool:
+        return self.signer_id is None
+
+    @property
     def manifest(self) -> str:
-        """The human-readable signature block printed on reports (§11.50)."""
+        """The human-readable signature block printed on reports (§11.50).
+
+        An automated signature says so in plain words. A clinician reading a
+        report is entitled to know whether a person looked at the result.
+        """
+        if self.is_automated:
+            return (
+                f"{self.get_meaning_display()}: {self.signer_printed_name} "
+                f"— no human review — {self.signed_at:%Y-%m-%d %H:%M:%S %Z}"
+            )
         return (
             f"{self.get_meaning_display()}: {self.signer_printed_name} "
             f"({self.signer_role}) — {self.signed_at:%Y-%m-%d %H:%M:%S %Z}"
@@ -807,3 +830,224 @@ class ChangeControl(IdentifiedModel):
 
     def __str__(self) -> str:
         return f"{self.reference} — {self.title}"
+
+
+# ── GDPR Chapter III: rights of the data subject ─────────────────────────────
+
+
+class DataSubjectRequestQuerySet(models.QuerySet):
+    def open(self):
+        return self.exclude(status__in=[
+            DataSubjectRequest.Status.COMPLETED,
+            DataSubjectRequest.Status.REFUSED,
+            DataSubjectRequest.Status.WITHDRAWN,
+        ])
+
+    def overdue(self):
+        return self.open().filter(due_at__lt=timezone.now())
+
+
+class DataSubjectRequest(IdentifiedModel):
+    """A patient exercising a right over their own data.
+
+    GDPR gives a data subject seven rights; a clinical laboratory can satisfy
+    some of them fully, some partially, and must refuse others outright. The
+    interesting engineering is in the refusals, because a system that simply
+    deletes on request would destroy records the laboratory is legally required
+    to keep — and would do so irreversibly.
+
+    Right by right
+    --------------
+    **Access (Art. 15)** — satisfied in full. The export includes demographics,
+    every order, every result, reports issued, and the accounting of
+    disclosures. Produced as a signed, encrypted archive.
+
+    **Rectification (Art. 16)** — satisfied, but *not* by overwriting. A
+    clinical record is corrected by amendment: the original value stays
+    visible, the correction is signed, and anyone who received the original is
+    notified. That is CAP's requirement and it happens to be what Art. 19
+    asks for too.
+
+    **Erasure (Art. 17)** — ordinarily refused, and the refusal is the
+    lawful answer. Art. 17(3)(b) disapplies erasure where processing is
+    necessary for compliance with a legal obligation, and 17(3)(c) where it is
+    necessary for public health purposes or the provision of health care. CLIA
+    §493.1105 requires test records for two years, pathology reports for ten,
+    and histopathology slides for ten; several jurisdictions require longer.
+    A request is therefore assessed against the retention schedule: anything
+    past its retention period *can* be erased and is; anything inside it is
+    refused with the specific basis stated, which is what Art. 12(4) requires.
+
+    **Restriction (Art. 18)** — satisfied by flagging the record so it is not
+    used for anything beyond storage and the establishment of legal claims.
+
+    **Portability (Art. 20)** — satisfied as a FHIR R4 Bundle, which is a
+    "structured, commonly used and machine-readable format" in the sense
+    Art. 20(1) means, and is actually loadable by another system, which a CSV
+    of our column names would not be.
+
+    **Objection (Art. 21)** and **automated decision-making (Art. 22)** —
+    recorded and assessed. Art. 22 is live here: autoverification is automated
+    processing that produces an effect on the subject, so a subject may demand
+    human review of any autoverified result, which the override mechanism
+    provides.
+    """
+
+    class Kind(models.TextChoices):
+        ACCESS = "access", "Access (Art. 15)"
+        RECTIFICATION = "rectification", "Rectification (Art. 16)"
+        ERASURE = "erasure", "Erasure (Art. 17)"
+        RESTRICTION = "restriction", "Restriction of processing (Art. 18)"
+        PORTABILITY = "portability", "Portability (Art. 20)"
+        OBJECTION = "objection", "Objection (Art. 21)"
+        HUMAN_REVIEW = "human_review", "Human review of automated decision (Art. 22)"
+
+    class Status(models.TextChoices):
+        RECEIVED = "received", "Received"
+        IDENTITY_PENDING = "identity_pending", "Awaiting identity verification"
+        IN_PROGRESS = "in_progress", "In progress"
+        COMPLETED = "completed", "Completed"
+        PARTIALLY_REFUSED = "partially_refused", "Completed in part; partly refused"
+        REFUSED = "refused", "Refused"
+        WITHDRAWN = "withdrawn", "Withdrawn by the subject"
+
+    #: Art. 12(3): one month, extendable by two further months for complex
+    #: requests, provided the subject is told within the first month.
+    RESPONSE_DAYS = 30
+    EXTENSION_DAYS = 60
+
+    reference = models.CharField(max_length=32, unique=True, help_text="DSR-YYYY-NNNN")
+    patient = models.ForeignKey(
+        "patients.Patient", on_delete=models.PROTECT, related_name="subject_requests"
+    )
+    kind = models.CharField(max_length=24, choices=Kind.choices)
+    status = models.CharField(max_length=24, choices=Status.choices, default=Status.RECEIVED)
+
+    received_at = models.DateTimeField(default=timezone.now)
+    due_at = models.DateTimeField()
+    extended = models.BooleanField(default=False)
+    extension_reason = models.TextField(blank=True)
+
+    requested_by = models.CharField(
+        max_length=255,
+        help_text="The subject, or a representative — recorded as given.",
+    )
+    relationship = models.CharField(
+        max_length=64, blank=True,
+        help_text="Self, parent, legal guardian, attorney, executor.",
+    )
+    detail = models.TextField(blank=True, help_text="What the subject actually asked for.")
+
+    #: Art. 12(6): where there is reasonable doubt about identity, further
+    #: information may be requested. Acting on an unverified request is how a
+    #: laboratory discloses a person's results to someone impersonating them.
+    identity_verified = models.BooleanField(default=False)
+    identity_verified_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="verified_subject_requests",
+    )
+    identity_verified_at = models.DateTimeField(null=True, blank=True)
+    identity_evidence = models.CharField(
+        max_length=255, blank=True, help_text="What was checked, not a copy of it."
+    )
+
+    handled_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="handled_subject_requests",
+    )
+    completed_at = models.DateTimeField(null=True, blank=True)
+    outcome = models.TextField(blank=True)
+    refusal_basis = models.TextField(
+        blank=True,
+        help_text="The specific legal basis for any refusal — Art. 12(4) requires it.",
+    )
+    export_path = models.CharField(
+        max_length=512, blank=True,
+        help_text="Where the encrypted export was written. Never the passphrase.",
+    )
+    records_erased = models.PositiveIntegerField(default=0)
+    signature = models.ForeignKey(
+        ElectronicSignature, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="subject_requests",
+    )
+
+    objects = DataSubjectRequestQuerySet.as_manager()
+
+    class Meta:
+        db_table = "data_subject_requests"
+        ordering = ["-received_at"]
+        indexes = [
+            models.Index(fields=["status", "due_at"]),
+            models.Index(fields=["patient", "-received_at"]),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.reference} — {self.get_kind_display()}"
+
+    def save(self, *args, **kwargs):
+        if not self.due_at:
+            self.due_at = self.received_at + timedelta(days=self.RESPONSE_DAYS)
+        super().save(*args, **kwargs)
+
+    @property
+    def is_open(self) -> bool:
+        return self.status not in (
+            self.Status.COMPLETED, self.Status.REFUSED, self.Status.WITHDRAWN
+        )
+
+    @property
+    def is_overdue(self) -> bool:
+        return bool(self.is_open and self.due_at and self.due_at < timezone.now())
+
+    @property
+    def days_remaining(self) -> int | None:
+        if not self.is_open or not self.due_at:
+            return None
+        return (self.due_at - timezone.now()).days
+
+    @property
+    def is_actionable(self) -> bool:
+        """Whether work may proceed: identity established, request still open."""
+        return self.is_open and self.identity_verified
+
+
+class ProcessingRestriction(IdentifiedModel):
+    """A record marked under GDPR Art. 18: stored, but otherwise left alone.
+
+    Enforced, not merely noted. A restricted patient's data is excluded from
+    research extracts, the public API and outbound webhooks, and any screen
+    showing it displays the restriction. Art. 18(2) permits continued storage
+    and processing for the establishment or defence of legal claims and for the
+    protection of others' rights — which is why it is a flag rather than a
+    deletion, and why clinical care is explicitly exempted below.
+    """
+
+    patient = models.OneToOneField(
+        "patients.Patient", on_delete=models.CASCADE, related_name="processing_restriction"
+    )
+    request = models.ForeignKey(
+        DataSubjectRequest, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="restrictions",
+    )
+    reason = models.TextField()
+    applied_at = models.DateTimeField(default=timezone.now)
+    applied_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="applied_restrictions",
+    )
+    lifted_at = models.DateTimeField(null=True, blank=True)
+    lifted_reason = models.TextField(blank=True)
+    #: Art. 18(2) — care continues. A restriction that blocked a clinician from
+    #: seeing a result would endanger the subject it exists to protect.
+    permits_clinical_care = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "processing_restrictions"
+        ordering = ["-applied_at"]
+
+    def __str__(self) -> str:
+        return f"restriction on {self.patient_id}"
+
+    @property
+    def is_active(self) -> bool:
+        return self.lifted_at is None

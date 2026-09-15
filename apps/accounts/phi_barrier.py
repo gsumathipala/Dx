@@ -25,6 +25,8 @@ CLINICAL_NAMESPACES = frozenset({
     "reporting",    # reports, cumulative reports, delivery
     "specialty",    # histopathology and microbiology
     "billing",      # invoices name the patient and the order
+    "rules",        # rule executions record the patient facts a rule saw
+    "api",          # the public API serves patient records
 })
 
 #: Namespaces an administrative role legitimately needs, whose screens carry no
@@ -44,6 +46,11 @@ BARRED_VIEW_NAMES = frozenset({
     "operations:storage",             # specimen placement
     "interop:fhir_report",            # a patient's report as FHIR
     "interop:hl7_oru",                # a patient's report as HL7
+    "interop:host_query_list",        # specimen identifiers and ordered tests
+    "operations:exception_list",      # accession numbers and clinical detail
+    "operations:exception_detail",
+    "compliance:subject_request_list",   # names a patient in every row
+    "compliance:subject_request_detail",
 })
 
 #: Paths reachable without passing a namespace check.

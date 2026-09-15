@@ -2,6 +2,119 @@
 
 All notable changes to the Dx Clinical LIS project will be documented in this file.
 
+## [v3.1.0] - 2026-09-16
+### Decision rules, autoverification, integrations and privacy rights
+
+This release closes the gaps identified against the product requirements: the
+rules engine, bidirectional instrument interfacing, a public API with webhooks,
+ICD-10 and inbound HL7, the GDPR subject-rights workflow, and a unified
+exception queue.
+
+### Added
+
+- **Rules engine** (`apps/rules/`). Laboratory-authored decision rules over
+  twenty facts available at the moment a result is produced — value, flag,
+  position against the patient's demographic reference interval, age, sex,
+  specimen type and condition, previous result and the change from it, QC
+  status, ICD-10 indication, entry source. Conditions are ANDed within a group
+  and ORed across groups, deliberately renderable as a form a biomedical
+  scientist can read and check. Actions append an attributed interpretive
+  comment, add a flag, add a follow-on test, hold a result, raise an exception,
+  notify a role, or request autoverification.
+- **Rule change control.** Rules are versioned; editing one increments the
+  version and withdraws its approval, so a modified rule stops firing until it
+  is signed again. Approval is a Part 11 electronic signature recording what
+  was reviewed. A rule can be simulated against a real historic order — every
+  condition, the fact it saw, whether it held — without applying anything.
+- **Autoverification, behind nine guardrails.** Per-analyte opt-in
+  (`TestDefinition.auto_verify_permitted`, off by default), in-control QC,
+  numeric and within the patient's demographic reference interval, never a
+  critical value, never delta-flagged, never flagged or held, never on a
+  specimen received as other than acceptable, never on an order with an open
+  exception, never on an amended result. Every refusal is recorded — all of
+  them, not just the first.
+- **Rule-attributable signatures.** `ElectronicSignature.signer` is now
+  nullable and `automated_rule` names the rule at the version that fired. A
+  report released this way prints "no human review" in its signature manifest.
+  Recording the user who happened to be in session would be false attribution.
+- **Autoverification override.** Any laboratory user can return an
+  autoverified result to the worklist with a recorded reason; the original
+  signature is superseded, never removed. This also satisfies GDPR Art. 22(3).
+- **Unified exception queue** (`operations.ExceptionItem`). Specimen
+  rejections, unacknowledged criticals past escalation, TAT breaches, QC
+  failures, silent interfaces, failed instrument messages, refused inbound HL7,
+  failing webhooks, rule-raised items, amended reports and overdue subject
+  requests. Deduplicated by source key; a recurrence bumps the count and a
+  problem that returns reopens the same item. Closing requires a resolution
+  note and can raise a CAPA. `manage.py sweep_exceptions` finds the conditions
+  nobody is present to notice.
+- **Host query — bidirectional instrument interfacing.** `HostQuery` plus
+  `POST /api/middleware/query/`; the instrument server answers ASTM `Q` records
+  and HL7 `QBP^Q11` with `--host-query`. Only outstanding tests on an open
+  order are returned, in the analyser's own codes, and only for an interface
+  configured bidirectional. Being asked about a specimen moves the order to
+  *In Progress*.
+- **Inbound HL7** (`apps/interop/inbound.py`, `POST /api/middleware/hl7/`).
+  `ORM^O01` and `OML^O21` new orders and cancellations keyed on the placer
+  order number, `ADT^A01/A04/A05/A08/A28/A31` patient registration and update,
+  `ADT^A40` merge. Acknowledged with `AA`, `AE` or `AR` — kept distinct,
+  because a sender that cannot tell wrong data from a broken message retries
+  forever. Identity is the MRN and nothing else. A refused message raises an
+  exception queue item.
+- **ICD-10** (`interop.Icd10Code`, `laboratory.OrderDiagnosis`). Ranked
+  diagnoses on an order, from `DG1` segments or the API, with code and
+  description denormalised so a 2026 record still reads correctly after the
+  catalogue row is revised.
+- **Public JSON API** at `/api/v1/` (`apps/api/`). Per-client credentials
+  (`<key id>.<secret>`, hashed at rest), nine per-resource scopes, pagination
+  capped at 200, per-client rate limiting, optional IP allow-list and expiry.
+  Catalogue, patients, orders, results, reports (JSON, FHIR or HL7), the
+  exception queue and webhook subscriptions. Every successful PHI read is
+  recorded as a disclosure naming the client and its organisation.
+- **Webhooks.** Nine events, HMAC-SHA256 signed over a timestamp and the raw
+  body, replay-resistant, HTTPS only, fired after commit, retried with backoff
+  up to six attempts. Direct identifiers stripped by default. A subscriber
+  failing twenty times running is disabled and raises an exception item.
+  Delivered by `manage.py deliver_webhooks`.
+- **GDPR subject rights** (`compliance.DataSubjectRequest`,
+  `ProcessingRestriction`, `apps/compliance/subject_rights.py`). Access,
+  rectification, erasure, restriction, portability, objection and human review.
+  Erasure is assessed order by order against the retention schedule and refused
+  with the specific period and authority named where Art. 17(3)(b) or (c)
+  applies. Exports are AES-256-GCM encrypted; the Art. 15 document declares the
+  automated decision-making in use, as Art. 15(1)(h) requires.
+- **Twelve new help topics** across three new sections — rules and automation,
+  integrations, privacy rights — taking the in-application library to 76
+  topics, with tutorials for writing and approving a rule, switching on
+  autoverification, working the exception queue, enabling host query, issuing
+  an API credential, subscribing a webhook, and handling access and erasure
+  requests.
+- **176 new tests** (412 total), including one per autoverification guardrail.
+
+### Changed
+
+- `operations.Message.sender` is nullable, with `sender_label` for messages
+  sent by a rule or the system. Attributing an automatic message to whoever
+  happened to enter the result would be a small lie that becomes a large one
+  during an investigation.
+- `Order` gained `placer_order_number` and `source_message_id`; `Patient`
+  gained `merged_into`/`merged_at`, so a merged record is retained rather than
+  deleted — the audit trail refers to it.
+- The PHI barrier now covers the `rules` and `api` namespaces, the host query
+  log, the exception queue and data subject requests. Rule executions record
+  the patient facts a rule saw.
+- `rules.RuleExecution` and `api.WebhookDelivery` are excluded from automatic
+  audit capture: both are already their own evidential record and both are
+  high-volume. The rules that produce them are audited.
+- `docs/API.md` documents the API that now exists, not only the rules for
+  adding one. `docs/REGULATORY.md` gained sections 19–22 (autoverification,
+  decision rules, data subject rights, exception management).
+
+### Fixed
+
+- The route smoke test treated token-authenticated API routes as broken
+  session routes.
+
 ## [v3.0.0] - 2026-09-15
 ### ⭐ Major Release: Rewritten on Django and PostgreSQL
 

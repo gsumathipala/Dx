@@ -1,0 +1,33 @@
+{% extends "generic/list.html" %}
+{% block content %}
+<div class="callout">
+    Each delivery is signed with HMAC-SHA256 over a timestamp and the body, in
+    the header <code>X-Dx-Signature</code>. A subscriber that does not verify it
+    is trusting anyone who can reach its URL.
+    {% if failing %}<strong>{{ failing }} delivery(ies) have given up.</strong>{% endif %}
+</div>
+{{ block.super }}
+
+<div class="card">
+    <div class="card-header"><h3>Recent deliveries</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <thead><tr><th>When</th><th>Webhook</th><th>Event</th><th>Status</th><th>Attempts</th><th>Code</th></tr></thead>
+            <tbody>
+            {% for delivery in recent %}
+                <tr>
+                    <td class="nowrap">{{ delivery.created_at|date:"j M H:i" }}</td>
+                    <td>{{ delivery.webhook.name }}</td>
+                    <td class="mono">{{ delivery.event }}</td>
+                    <td>{{ delivery.get_status_display }}</td>
+                    <td class="right">{{ delivery.attempts }}</td>
+                    <td class="right">{{ delivery.response_code|default:"—" }}</td>
+                </tr>
+            {% empty %}
+                <tr><td colspan="6" class="empty">Nothing has been delivered yet.</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

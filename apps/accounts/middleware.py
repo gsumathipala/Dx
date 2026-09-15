@@ -16,8 +16,11 @@ PUBLIC_PATH_PATTERNS = [
     re.compile(r"^/healthz/?$"),
     re.compile(r"^/static/"),
     re.compile(r"^/media/"),
-    # The instrument interface authenticates with a bearer token instead.
-    re.compile(r"^/api/middleware/ingest/?$"),
+    # These authenticate themselves with a bearer token rather than a session,
+    # so they must reach their own view to be checked. Letting the session gate
+    # reject them first would make every API call look like a login failure.
+    re.compile(r"^/api/middleware/"),
+    re.compile(r"^/api/v1/"),
 ]
 
 

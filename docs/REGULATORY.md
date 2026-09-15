@@ -203,6 +203,9 @@ validation evidence.
 | Consent and withdrawal | Per-purpose consent records | `PatientConsent` |
 | Emergency access ("break the glass") | Flagged on the access record | `PHIAccessLog.break_the_glass` |
 | Minimum necessary, §164.502(b) | The installer role is barred from patient data entirely, and identifiers are redacted from the screens it *can* reach | `apps/accounts/phi_barrier.py`, `apps/audit/redaction.py` |
+| Minimum necessary, §164.502(b) — machines | API clients are scoped per resource and verb, named to an accountable owner, and must state a purpose before a PHI scope can be granted | `apps/api/models.py` |
+| Audit controls, §164.312(b) — machines | Every successful API read of patient data is recorded as a disclosure, naming the client and its organisation | `apps/api/auth.py` |
+| Disclosure minimisation | Webhook payloads strip direct identifiers by default; a subscriber fetches detail over the logged API instead | `apps/api/webhooks.py` |
 
 **Redaction, not concealment.** The installer needs the audit trail to confirm
 the chain is intact and that changes are attributable, so clinical entries are
@@ -249,6 +252,117 @@ conditions are raised, not just the first.
 
 ---
 
+## 19. Automatic verification — CLIA 42 CFR §493.1291, CLSI AUTO10-A
+
+Results may be released without a person reading them, by a decision rule. This
+is the highest-risk capability in the system and it is treated as one.
+
+| Control | Mechanism |
+| --- | --- |
+| Analyte-scoped opt-in | `TestDefinition.auto_verify_permitted`, off by default |
+| Quality control must be in control | `check_qc_status` — the same gate a human release passes |
+| Result must be numeric and within its interval | Demographic interval where one exists, not the catalogue default |
+| Never a critical value | A panic result must reach a person who telephones it (CAP GEN.41320) |
+| Never a delta-flagged result | A large change from the patient's own previous value is what a rule cannot interpret |
+| Never a flagged, held, or non-numeric result | |
+| Never on a specimen received as other than acceptable | |
+| Never on an order with an open exception | |
+| Never on an amended result | It has already gone wrong once |
+| Installation-wide off switch | `RULES_ALLOW_AUTO_VERIFICATION=0` stops all automatic release immediately |
+
+Every refusal is recorded on the `RuleExecution`, all of them at once rather
+than the first found, so a laboratory tuning a rule set sees every blocker in
+one pass.
+
+**Attribution.** The release carries an electronic signature whose signer is
+the *rule*, at the version that fired — `ElectronicSignature.signer` is null
+and `automated_rule` names it. The signature manifest printed on the report
+reads "no human review", so a clinician knows. Recording the user who happened
+to be in session would be false attribution, which is a graver §11.50 finding
+than having no human signature.
+
+**Reversibility.** Any laboratory user may override an automatic verification
+with a recorded reason. The result returns to the worklist, the order reopens,
+and the original signature is retained — Part 11 records are permanent, so it
+is superseded rather than removed.
+
+**Change control.** A rule is versioned. Editing one increments its version and
+withdraws its approval, so a modified rule stops firing until somebody
+competent signs it again. Approval is itself an electronic signature recording
+what was reviewed. This is what CLIA §493.1253 and ISO 15189 §8.5 require of a
+change to the examination process.
+
+---
+
+## 20. Decision rules — CLIA 42 CFR §493.1253, ISO 15189:2022 §8.5
+
+Interpretive comments, result flags, reflex additions and exception raising are
+configured as data, by the laboratory, rather than written in code.
+
+* Conditions are ANDed within a group and ORed across groups — expressive
+  enough for what laboratories actually ask for, and renderable as a form a
+  biomedical scientist can read and check. A rule nobody can read is a rule
+  nobody can validate.
+* A rule can be simulated against a real historic result before approval,
+  which is the difference between validating a rule and hoping.
+* Every firing records the facts the rule saw, so "why does this report say
+  that?" is answerable months later.
+* Automatic comments are attributed inline (`[Rule name] …`), so a reader can
+  tell an automatic note from a scientist's opinion.
+
+---
+
+## 21. Data subject rights — GDPR Chapter III
+
+| Right | Handling |
+| --- | --- |
+| Access, Art. 15 | Full export: demographics, orders, results, disclosures, and a statement of the automated decision-making in use (Art. 15(1)(h)) |
+| Rectification, Art. 16 | By amendment, never overwriting — the original stays visible, the correction is signed, recipients are notified (also satisfies Art. 19) |
+| Erasure, Art. 17 | Assessed per record against the retention schedule; refused with a stated basis where Art. 17(3)(b) or (c) applies |
+| Restriction, Art. 18 | Flagged and enforced; clinical care continues, as Art. 18(2) permits |
+| Portability, Art. 20 | FHIR R4 Bundle — machine-readable in the sense Art. 20(1) means, and loadable by another system |
+| Objection, Art. 21 | Recorded and assessed |
+| Human review, Art. 22(3) | Any autoverified result can be pulled back for a person to verify |
+
+**The refusals are the substance.** A system that deletes on request destroys
+records the laboratory is legally required to keep, irreversibly. Erasure is
+assessed order by order: anything past its retention period is erased, anything
+inside it is refused with the specific period and authority named, which is
+what Art. 12(4) requires. Identifiers are removed only when nothing clinical is
+retained.
+
+Erasure destroys the clinical content and keeps the record shell — accession
+number, dates, the fact of erasure. A dangling reference would corrupt the
+audit chain, and a trail that can be broken by a deletion request is not an
+audit trail.
+
+Identity is verified before anything is disclosed or destroyed (Art. 12(6)),
+and the statutory clock runs from receipt, not from verification — a laboratory
+cannot extend its own deadline by being slow to check who is asking. Exports
+are AES-256-GCM encrypted; the passphrase is never stored beside the file.
+
+---
+
+## 22. Exception management — ISO 15189:2022 §8.7
+
+Everything needing a person appears on one queue: rejected specimens,
+unacknowledged critical values past their escalation deadline, breached
+turnaround, failed quality control, silent instrument interfaces, refused
+inbound messages, failing integrations, amended reports and overdue data
+subject requests.
+
+Items are deduplicated by a stable source key, so a sweep can run every minute
+without flooding the queue, and a recurring fault appears as one item with a
+high occurrence count rather than as noise. A problem that returns after being
+closed reopens the same item.
+
+Closing an item requires a resolution note and may raise a CAPA. The queue is
+therefore also a record of what the laboratory actually dealt with, which is
+what §8.7 asks for when it requires nonconformities to be managed rather than
+merely noticed.
+
+---
+
 ## What this system does *not* do
 
 Stated plainly, because an overstated claim is worse than a gap:
@@ -260,5 +374,8 @@ Stated plainly, because an overstated claim is worse than a gap:
 * Blood bank / transfusion medicine (`21 CFR 606`, AABB) is **not** implemented;
   the retention class exists but the workflow does not.
 * Digital pathology image management is out of scope.
-* The HL7 and FHIR interfaces cover result reporting; inbound order messages
-  (ORM^O01) are not yet implemented.
+* It does **not** hold a SNOMED CT or full ICD-10 licence. The ICD-10 table is
+  a lookup populated by the laboratory, not a terminology server.
+* Database-level encryption at rest is a **deployment** responsibility —
+  filesystem encryption or PostgreSQL TDE. What the application encrypts is
+  everything it writes outside the database: archives, backups and exports.

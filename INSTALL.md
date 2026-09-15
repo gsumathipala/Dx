@@ -208,7 +208,49 @@ To exercise it without an analyser, in another terminal:
 python -m dx_instrument.simulator <accession-number> --protocol astm
 ```
 
+**Bidirectional (host query).** To have the listener answer an analyser's
+work-list queries as well as receive results:
+
+```bash
+INSTRUMENT_INGEST_TOKEN=<same value as in .env> \
+  python -m dx_instrument.cli --port 5150 --protocol astm \
+    --interface-id <InstrumentInterface id> --host-query
+```
+
+Host query is opt-in on **both** sides: the listener needs `--host-query`, and
+the `InstrumentInterface` record in Dx must have its direction set to
+*Bidirectional*. Either one off and queries are refused. An analyser handed a
+work list it was not configured to expect will run tests nobody ordered.
+
 See [instrument_server/README.md](instrument_server/README.md).
+
+### Webhook delivery
+
+Required if anything subscribes to events. Without it, deliveries queue and no
+subscriber is ever called.
+
+```bash
+python manage.py deliver_webhooks --forever --interval 15
+```
+
+Or from cron, without `--forever`:
+
+```cron
+* * * * * cd /opt/dx && .venv/bin/python manage.py deliver_webhooks
+```
+
+### Exception sweep
+
+Raises exception queue items for conditions nobody is present to notice — a
+critical value that passed its escalation deadline at 3am, an interface that
+went quiet, a turnaround target breached overnight.
+
+```bash
+python manage.py sweep_exceptions --forever --interval 60
+```
+
+Idempotent: the queue deduplicates by source key, so repeated sweeps refresh
+rather than multiply.
 
 ---
 
@@ -220,7 +262,24 @@ docker compose up --build
 ```
 
 This starts PostgreSQL, the web application, the audit worker and the
-instrument listener. Then seed the demonstration data if you want it:
+instrument listener. The webhook deliverer and the exception sweep are not in
+the compose file — add them if you use webhooks or want swept exceptions:
+
+```yaml
+  webhooks:
+    build: .
+    command: python manage.py deliver_webhooks --forever --interval 15
+    env_file: .env
+    depends_on: [db]
+
+  sweeper:
+    build: .
+    command: python manage.py sweep_exceptions --forever --interval 60
+    env_file: .env
+    depends_on: [db]
+```
+
+Then seed the demonstration data if you want it:
 
 ```bash
 docker compose exec web python manage.py seed_demo
@@ -293,9 +352,12 @@ working password with an older one.
 python manage.py test tests
 ```
 
-129 tests covering the audit chain and its immutability, the regulatory
-controls, the clinical decision engine, accessioning under concurrency, the
-instrument protocols, and every registered page.
+412 tests covering the audit chain and its immutability, the regulatory
+controls, the clinical decision engine, the rules engine and every
+autoverification guardrail, accessioning under concurrency, the instrument
+protocols, inbound HL7 and host query, API authentication and scoping, webhook
+signing and retry, the exception queue, GDPR erasure assessment, and every
+registered page.
 
 ---
 

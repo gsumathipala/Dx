@@ -2,7 +2,7 @@ from django.urls import path
 
 from apps.common.views import CrudResource
 from apps.operations import forms as ops_forms
-from apps.operations import views
+from apps.operations import exception_views, views
 from apps.operations.models import (
     RoutingAssignment, RoutingRule, StorageLocation, SystemAlert, SystemSetting,
     TatThreshold, Worksheet, Workstation,
@@ -94,6 +94,14 @@ urlpatterns = [
     path("feedback/", views.feedback, name="feedback"),
     path("tracking/", views.tracking, name="tracking"),
     path("queues/", views.QueueBoardView.as_view(), name="queues"),
+
+    # The unified exception queue. Listed before any "<pk>/" pattern.
+    path("exceptions/", exception_views.ExceptionListView.as_view(), name="exception_list"),
+    path("exceptions/<str:pk>/", exception_views.exception_detail, name="exception_detail"),
+    path("exceptions/<str:pk>/acknowledge/", exception_views.exception_acknowledge,
+         name="exception_acknowledge"),
+    path("exceptions/<str:pk>/resolve/", exception_views.exception_resolve,
+         name="exception_resolve"),
     path("backup/", views.backup, name="backup"),
 
     # Listed before the storage-location resource so "storage/" is not shadowed.

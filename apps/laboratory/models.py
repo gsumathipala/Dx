@@ -27,6 +27,15 @@ class TestDefinition(IdentifiedModel, ActivatableModel):
     specimen_types = models.JSONField(default=list, blank=True)
     methodology = models.CharField(max_length=255, null=True, blank=True)
     loinc_code = models.CharField(max_length=32, null=True, blank=True)
+    auto_verify_permitted = models.BooleanField(
+        default=False,
+        help_text=(
+            "Allow decision rules to release results for this analyte without a "
+            "person reading them. Off until the laboratory has validated "
+            "autoverification for this test specifically — it is an "
+            "analyte-scoped decision, not a system-wide mode."
+        ),
+    )
 
     class Meta:
         db_table = "test_definitions"
@@ -152,6 +161,15 @@ class Order(IdentifiedModel):
     updated_at = models.DateTimeField(null=True, blank=True)
     tests = models.ManyToManyField(TestDefinition, related_name="orders", blank=True)
 
+    #: The ordering system's own identifier for this request (HL7 ORC-2).
+    #: Kept so a later cancellation or query finds the order we made, and so a
+    #: retransmitted order is recognised rather than accessioned twice.
+    placer_order_number = models.CharField(max_length=64, blank=True, default="")
+    source_message_id = models.CharField(
+        max_length=64, blank=True, default="",
+        help_text="Control id of the inbound message that created this order.",
+    )
+
     objects = OrderQuerySet.as_manager()
 
     class Meta:
@@ -162,6 +180,7 @@ class Order(IdentifiedModel):
             models.Index(fields=["-timestamp"]),
             models.Index(fields=["patient", "-timestamp"]),
             models.Index(fields=["accession_number"]),
+            models.Index(fields=["placer_order_number"]),
         ]
 
     def __str__(self) -> str:
@@ -386,3 +405,52 @@ class SpecimenDisposal(IdentifiedModel):
 
     def __str__(self) -> str:
         return f"{self.specimen_id} disposed {self.disposed_at:%Y-%m-%d}"
+
+
+class OrderDiagnosis(IdentifiedModel):
+    """An ICD-10 diagnosis attached to an order.
+
+    Ranked, because the first-listed code is the primary indication and that
+    distinction is what a payer reads. ``code_value`` and ``description`` are
+    denormalised deliberately: a diagnosis recorded against a specimen in 2026
+    must still read correctly in 2031 after the catalogue row has been
+    superseded, revised or withdrawn. The foreign key is for lookup; the copy
+    is the record.
+    """
+
+    class Kind(models.TextChoices):
+        WORKING = "working", "Working / provisional"
+        CONFIRMED = "confirmed", "Confirmed"
+        RULE_OUT = "rule_out", "Rule out"
+        HISTORY = "history", "Relevant history"
+
+    order = models.ForeignKey(Order, on_delete=models.CASCADE, related_name="diagnoses")
+    code = models.ForeignKey(
+        "interop.Icd10Code", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="order_diagnoses",
+    )
+    code_value = models.CharField(max_length=16)
+    description = models.TextField(blank=True)
+    rank = models.PositiveSmallIntegerField(
+        default=1, help_text="1 is the primary indication."
+    )
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.WORKING)
+    recorded_by = models.CharField(max_length=150, blank=True)
+    recorded_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "order_diagnoses"
+        ordering = ["rank", "code_value"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["order", "code_value"], name="order_diagnosis_unique"
+            ),
+        ]
+        indexes = [models.Index(fields=["code_value"])]
+
+    def __str__(self) -> str:
+        return f"{self.code_value} on {self.order_id}"
+
+    @property
+    def is_primary(self) -> bool:
+        return self.rank == 1

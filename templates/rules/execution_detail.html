@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ execution.rule_name }}{% endblock %}
+{% block page_title %}{{ execution.rule_name }}{% endblock %}
+{% block page_subtitle %}
+<div class="subtitle">Fired {{ execution.fired_at|date:"j F Y, H:i:s" }} — version {{ execution.rule_version }}</div>
+{% endblock %}
+{% block page_actions %}
+    <a class="btn" href="{% url 'rules:execution_list' %}">Firing log</a>
+    {% if execution.rule %}<a class="btn" href="{% url 'rules:rule_detail' execution.rule.pk %}">The rule</a>{% endif %}
+{% endblock %}
+
+{% block content %}
+{% if execution.auto_verified and not execution.is_overridden %}
+    <div class="alert alert-warning">
+        <strong>This result was released automatically.</strong>
+        No person read it. The report's signature manifest says so.
+    </div>
+{% endif %}
+{% if execution.is_overridden %}
+    <div class="alert alert-info">
+        Overridden by {{ execution.overridden_by.get_full_name }} on
+        {{ execution.overridden_at|date:"j F Y, H:i" }}: {{ execution.override_reason }}
+    </div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>Outcome</h3></div>
+    <div class="card-body">
+        <dl class="detail-grid">
+            <dt>Result</dt>
+            <dd>{% if user.may_see_patient_data %}{{ execution.order.accession_number }} / {{ execution.test_code }}{% else %}{{ execution.safe_test_code }}{% endif %}</dd>
+            <dt>Outcome</dt><dd>{{ execution.get_outcome_display }}</dd>
+            <dt>Actions applied</dt>
+            <dd>
+                <ul class="plain">
+                    {% for action in execution.actions_applied %}<li>{{ action }}</li>{% empty %}<li class="muted">None.</li>{% endfor %}
+                </ul>
+            </dd>
+            {% if execution.refusals %}
+            <dt>Refused because</dt>
+            <dd>
+                <ul class="plain">
+                    {% for refusal in execution.refusals %}<li>{{ refusal }}</li>{% endfor %}
+                </ul>
+            </dd>
+            {% endif %}
+            {% if execution.signature %}
+            <dt>Signature</dt><dd class="mono">{{ execution.signature.manifest }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header"><h3>Facts the rule saw</h3></div>
+    <div class="card-body flush">
+        {% if user.may_see_patient_data %}
+        <table class="data">
+            <thead><tr><th>Fact</th><th>Value</th></tr></thead>
+            <tbody>
+            {% for name, value in facts %}
+                <tr><td class="mono">{{ name }}</td><td class="mono">{{ value }}</td></tr>
+            {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+            <p class="muted" style="padding:1rem">{{ execution.safe_facts }} — these describe a patient and are not shown to your role.</p>
+        {% endif %}
+    </div>
+</div>
+
+{% if can_override %}
+<div class="card">
+    <div class="card-header"><h3>Take this back for human verification</h3></div>
+    <div class="card-body">
+        <form method="post" action="{% url 'rules:execution_override' execution.pk %}">
+            {% csrf_token %}
+            {{ override_form.as_p }}
+            <button class="btn btn-danger" type="submit">Override the automatic release</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

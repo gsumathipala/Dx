@@ -23,10 +23,17 @@ class ParsedMessage:
     instrument: str | None = None
     patient_id: str | None = None
     results: list[dict] = field(default_factory=list)
+    #: Specimen identifiers the analyser is *asking* about rather than
+    #: reporting on. An ASTM Q record or an HL7 QBP^Q11 populates this.
+    queries: list[str] = field(default_factory=list)
 
     @property
     def is_empty(self) -> bool:
         return not self.results
+
+    @property
+    def is_query(self) -> bool:
+        return bool(self.queries)
 
     def as_payload(self, interface_id: str | None = None) -> dict:
         return {
@@ -70,6 +77,14 @@ def parse_astm(payload: str) -> ParsedMessage:
                 # O|1|specimen id|instrument specimen id|^^^TEST
                 message.accession = (fields[2] or fields[3] if len(fields) > 3 else fields[2]) or None
 
+            elif record_type == "Q" and len(fields) > 2:
+                # Q|1|^specimen id^|…  — the analyser asking for a work list.
+                # The starting range is in the third field, component 2 in most
+                # implementations and component 1 in some, so both are tried.
+                parts = [part for part in fields[2].split("^") if part.strip()]
+                if parts:
+                    message.queries.append(parts[-1].strip())
+
             elif record_type == "R" and len(fields) > 3:
                 # R|1|^^^GLU|5.4|mmol/L|ref|flags|...|status|...|completed
                 test_code = fields[2].split("^")[-1] if fields[2] else ""
@@ -111,6 +126,12 @@ def parse_hl7(payload: str) -> ParsedMessage:
             elif segment_type == "OBR" and len(fields) > 3:
                 # Filler order number, falling back to the placer order number.
                 message.accession = (fields[3] or fields[2] or "").split("^")[0] or None
+
+            elif segment_type == "QPD" and len(fields) > 3:
+                # QPD|SLI^Specimen labelling instructions|query id|specimen id
+                identifier = fields[3].split("^")[0].strip()
+                if identifier:
+                    message.queries.append(identifier)
 
             elif segment_type == "OBX" and len(fields) > 5:
                 identifier = fields[3].split("^") if len(fields) > 3 else []

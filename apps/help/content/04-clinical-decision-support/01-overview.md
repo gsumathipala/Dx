@@ -55,3 +55,16 @@ If a limit was wrong and results were released against it, that is a
 nonconformance and possibly an
 [amended report](/help/reporting/amended-reports/) — not something a
 configuration change fixes by itself.
+
+
+## Beyond the built-in rules
+
+The checks above are fixed in shape: a delta check always compares with the
+previous value, a reflex rule always adds a test. What they cannot express is
+anything conditional on a combination — *this analyte, above this value, on a
+haemolysed specimen, in a patient over sixty*.
+
+That is what the [rules engine](/help/rules-and-automation/why-rules/) is for.
+It sits alongside these checks, runs after them, and can see what they found:
+whether the result was critical, whether a delta check fired, what the quality
+control status is.

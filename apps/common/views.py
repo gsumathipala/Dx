@@ -45,6 +45,30 @@ class RoleRequiredMixin(LoginRequiredMixin, UserPassesTestMixin):
         return super().handle_no_permission()
 
 
+def role_required(*roles: str):
+    """Restrict a function view to a set of roles.
+
+    The class-based screens get this from ``RoleRequiredMixin``; the handful of
+    function views that carry real workflow need the same check, and writing it
+    inline in each is how one of them ends up missing it.
+    """
+    import functools
+
+    def decorator(view):
+        @functools.wraps(view)
+        def wrapper(request, *args, **kwargs):
+            user = getattr(request, "user", None)
+            if user is None or not user.is_authenticated:
+                raise PermissionDenied("Sign in first.")
+            if roles and user.role not in roles:
+                raise PermissionDenied("Your role does not permit access to this screen.")
+            return view(request, *args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 def request_referer(request, fallback: str = "operations:dashboard") -> str:
     return request.META.get("HTTP_REFERER") or reverse(fallback)
 

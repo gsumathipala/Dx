@@ -1,0 +1,12 @@
+{% extends "generic/list.html" %}
+{% block content %}
+<div class="callout">
+    <strong>A credential here can read patient records.</strong>
+    Grant the least scope that does the job, set an expiry, and name the
+    organisation and purpose — both appear on the disclosure record when the
+    client reads anything.
+    <a href="{% url 'integrations:webhook_list' %}">Webhooks</a> ·
+    <a href="/help/interoperability/the-rest-api/">How to use the API</a>
+</div>
+{{ block.super }}
+{% endblock %}

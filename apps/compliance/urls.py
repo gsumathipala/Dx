@@ -2,7 +2,7 @@ from django.urls import path
 
 from apps.common.views import CrudResource
 from apps.compliance import forms as compliance_forms
-from apps.compliance import views
+from apps.compliance import subject_views, views
 from apps.compliance.models import (
     ChangeControl, CorrectiveAction, DisclosureAccounting, MethodValidation,
     PHIAccessLog, ProficiencyResult, ProficiencySurvey, RetentionSchedule,
@@ -139,4 +139,24 @@ urlpatterns = [
     *retention.urls("retention/"),
     *phi_access.urls("phi-access/"),
     *disclosures.urls("disclosures/"),
+
+    # GDPR data subject requests. Specific paths before "<pk>/".
+    path("subject-requests/", subject_views.SubjectRequestListView.as_view(),
+         name="subject_request_list"),
+    path("subject-requests/new/", subject_views.subject_request_create,
+         name="subject_request_create"),
+    path("subject-requests/<str:pk>/", subject_views.subject_request_detail,
+         name="subject_request_detail"),
+    path("subject-requests/<str:pk>/verify/", subject_views.subject_request_verify,
+         name="subject_request_verify"),
+    path("subject-requests/<str:pk>/extend/", subject_views.subject_request_extend,
+         name="subject_request_extend"),
+    path("subject-requests/<str:pk>/export/", subject_views.subject_request_export,
+         name="subject_request_export"),
+    path("subject-requests/<str:pk>/download/", subject_views.subject_request_download,
+         name="subject_request_download"),
+    path("subject-requests/<str:pk>/erase/", subject_views.subject_request_erase,
+         name="subject_request_erase"),
+    path("subject-requests/<str:pk>/restrict/", subject_views.subject_request_restrict,
+         name="subject_request_restrict"),
 ]

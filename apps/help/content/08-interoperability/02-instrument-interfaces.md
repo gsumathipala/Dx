@@ -100,3 +100,10 @@ Instrument payloads contain patient identifiers in their `PID` segment. The
 message log therefore hides payloads from roles barred from patient data — an
 installer sees the interface, status, parse outcome and error, which is what
 diagnosis needs.
+
+
+## The other direction
+
+Everything above is the analyser sending results *to* the LIS. An analyser can
+also ask the LIS what to run on a specimen it has just loaded, which is what
+[host query](/help/integrations/host-query/) covers.

@@ -1,0 +1,11 @@
+{% extends "generic/list.html" %}
+{% block content %}
+<div class="callout">
+    <strong>How a rule reaches production.</strong>
+    Write it, save it as a draft, try it against a real historic result, then
+    approve it. Approval is an electronic signature and applies to one version:
+    editing an approved rule withdraws the approval, so a changed rule never
+    keeps running on an older sign-off.
+</div>
+{{ block.super }}
+{% endblock %}

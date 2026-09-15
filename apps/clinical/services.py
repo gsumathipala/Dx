@@ -154,7 +154,44 @@ def check_critical_value(order, test, value: float, entered_by: str) -> Critical
             "escalation_due_at": timezone.now() + timedelta(minutes=escalation_minutes),
         },
     )
-    return notification if created else None
+    if not created:
+        return None
+
+    # A critical value is the one thing in a laboratory that must reach a human
+    # being. It goes to the exception queue as well as its own screen, and to
+    # any integration that has asked to be told.
+    try:
+        from apps.api.webhooks import emit
+        from apps.operations.exceptions import ExceptionSource, raise_exception
+
+        emit("critical_value.raised", {
+            "order_id": str(order.pk),
+            "accession_number": order.accession_number,
+            "patient": {"id": str(order.patient_id)},
+            "test_code": test.code,
+            "value": str(value),
+            "threshold": threshold,
+            "critical_type": critical_type,
+        })
+        raise_exception(
+            source=ExceptionSource.CRITICAL_VALUE,
+            source_key=f"critical:{notification.pk}",
+            title=f"Critical {test.code} on {order.accession_number}",
+            detail=(
+                f"{test.code} = {value} {units} ({threshold}). Telephone the "
+                "requesting clinician and record read-back."
+            ).strip(),
+            severity="critical",
+            order=order,
+            test_code=test.code,
+            entity_type="clinical.CriticalValueNotification",
+            entity_id=notification.pk,
+            due_at=notification.escalation_due_at,
+        )
+    except Exception:
+        logger.exception("Could not escalate critical value for %s", order.accession_number)
+
+    return notification
 
 
 # ── Reflex testing ───────────────────────────────────────────────────────────
