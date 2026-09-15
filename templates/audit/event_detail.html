@@ -3,11 +3,20 @@
 {% block page_title %}Audit event #{{ event.sequence }}{% endblock %}
 {% block page_subtitle %}<div class="subtitle">{{ event.action }} on {{ event.entity_type }}</div>{% endblock %}
 {% block page_actions %}
-    <a class="btn" href="{% url 'audit:entity_history' event.entity_type event.entity_id %}">Record history</a>
+    {% if not redacting %}
+        <a class="btn" href="{% url 'audit:entity_history' event.entity_type event.entity_id %}">Record history</a>
+    {% endif %}
     <a class="btn" href="{% url 'audit:trail' %}">Back to trail</a>
 {% endblock %}
 
 {% block content %}
+{% if redacting %}
+    <div class="alert alert-info">
+        This entry concerns patient data, which your role may not see. Its
+        content is redacted; the actor, time, action and chain position are
+        shown in full, and the hash was verified against the stored entry.
+    </div>
+{% endif %}
 {% if not hash_valid %}
     <div class="alert alert-error">
         <strong>This event fails verification.</strong>

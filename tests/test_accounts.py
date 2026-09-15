@@ -293,3 +293,135 @@ class CreateInstallerCommandTests(TestCase):
         make_installer("inst3")
         with self.assertRaises(CommandError):
             call_command("create_installer", username="inst3", password=PASSWORD, verbosity=0)
+
+
+class IdentifierRedactionTests(TestCase):
+    """No patient identifier may reach a role barred from patient data.
+
+    The installer keeps the audit trail — it needs it for system assurance —
+    but sees clinical entries with their content removed.
+    """
+
+    def setUp(self):
+        from apps.audit.context import audit_as
+        from apps.laboratory.services import create_order
+
+        self.installer = make_installer()
+        self.admin = make_user("admin-r", role=Role.ADMIN)
+
+        with audit_as(actor_username="setup", actor_role="admin"):
+            self.patient = make_patient(mrn="MRN-SECRET-001")
+            self.patient.first_name = "Confidential"
+            self.patient.last_name = "Surname"
+            self.patient.save()
+            self.test = make_test(code="RED")
+            self.order = create_order(
+                patient=self.patient, tests=[self.test], ordered_by="Dr A"
+            )
+        recorder.flush(timeout=5)
+
+        self.needles = [
+            self.patient.first_name, self.patient.last_name, self.patient.mrn,
+            self.order.accession_number,
+        ]
+
+    def _body(self, user, url):
+        self.client.force_login(user)
+        response = self.client.get(url)
+        return response, response.content.decode("utf-8", errors="replace")
+
+    def _assert_clean(self, body, where):
+        for needle in self.needles:
+            self.assertNotIn(needle, body, f"{needle!r} leaked into {where}")
+
+    def test_audit_trail_shows_no_identifiers(self):
+        response, body = self._body(self.installer, reverse("audit:trail"))
+        self.assertEqual(response.status_code, 200)
+        self._assert_clean(body, "the audit trail")
+
+    def test_audit_csv_export_shows_no_identifiers(self):
+        response, body = self._body(self.installer, reverse("audit:export_csv"))
+        self.assertEqual(response.status_code, 200)
+        self._assert_clean(body, "the CSV export")
+
+    def test_instrument_message_log_shows_no_identifiers(self):
+        from apps.interop.models import InstrumentMessage
+
+        InstrumentMessage.objects.create(
+            raw_payload=f"PID|1||{self.patient.mrn}||{self.patient.last_name}^{self.patient.first_name}",
+            accession_number=self.order.accession_number,
+            status=InstrumentMessage.Status.APPLIED,
+        )
+        response, body = self._body(self.installer, reverse("interop:message_list"))
+        self.assertEqual(response.status_code, 200)
+        self._assert_clean(body, "the instrument message log")
+
+    def test_event_detail_of_a_clinical_record_is_redacted(self):
+        event = AuditEvent.objects.filter(entity_type="patients.Patient").first()
+        response, body = self._body(
+            self.installer, reverse("audit:event_detail", args=[event.sequence])
+        )
+        self.assertEqual(response.status_code, 200)
+        self._assert_clean(body, "the event detail")
+        self.assertIn("redacted", body.lower())
+
+    def test_searching_for_an_identifier_finds_nothing(self):
+        """A search that found the record would itself confirm it exists.
+
+        The term the installer typed is echoed back into the search box, which
+        is not a disclosure — they already knew what they typed. What matters
+        is that it matches nothing.
+        """
+        self.client.force_login(self.installer)
+        response = self.client.get(reverse("audit:trail"), {"q": self.patient.mrn})
+        body = response.content.decode("utf-8", errors="replace")
+
+        self.assertNotIn("/audit/event/", body, "a search for an MRN returned results")
+        self.assertIn("No audit events match", body)
+        # The patient's name must not appear even though the MRN was typed.
+        self.assertNotIn(self.patient.last_name, body)
+        self.assertNotIn(self.order.accession_number, body)
+
+    def test_a_patients_history_url_is_refused(self):
+        self.client.force_login(self.installer)
+        response = self.client.get(
+            reverse("audit:entity_history", args=["patients.Patient", self.patient.pk])
+        )
+        self.assertEqual(response.status_code, 403)
+
+    def test_record_keys_are_tokenised_not_shown(self):
+        from apps.audit.redaction import record_token
+
+        _response, body = self._body(self.installer, reverse("audit:trail"))
+        self.assertNotIn(str(self.patient.pk), body)
+        token = record_token(self.patient.pk)
+        self.assertTrue(token.startswith("ref:"))
+        self.assertNotIn(str(self.patient.pk), token)
+
+    def test_the_same_record_tokenises_consistently(self):
+        from apps.audit.redaction import record_token
+
+        self.assertEqual(record_token(self.patient.pk), record_token(self.patient.pk))
+        self.assertNotEqual(record_token(self.patient.pk), record_token(self.order.pk))
+
+    def test_system_entries_are_not_redacted_for_the_installer(self):
+        """Redaction must not blind the installer to its own domain."""
+        from apps.audit.redaction import is_phi_bearing
+
+        self.assertFalse(is_phi_bearing("accounts.User"))
+        self.assertFalse(is_phi_bearing("operations.SystemSetting"))
+        self.assertFalse(is_phi_bearing("interop.InstrumentInterface"))
+        self.assertTrue(is_phi_bearing("patients.Patient"))
+        self.assertTrue(is_phi_bearing("laboratory.Order"))
+        self.assertTrue(is_phi_bearing("interop.InstrumentMessage"))
+
+    def test_an_administrator_still_sees_everything(self):
+        _response, body = self._body(self.admin, reverse("audit:trail"))
+        self.assertIn(self.patient.mrn, body)
+
+    def test_chain_verification_still_works_for_the_installer(self):
+        """Redaction is presentational: it must not look like tampering."""
+        self.client.force_login(self.installer)
+        response = self.client.get(reverse("audit:verify_api"))
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["ok"])

@@ -6,6 +6,7 @@ from datetime import timedelta
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required, user_passes_test
+from django.core.exceptions import PermissionDenied
 from django.core.paginator import Paginator
 from django.db.models import Count, Q
 from django.http import HttpResponse, JsonResponse
@@ -14,6 +15,10 @@ from django.utils import timezone
 from django.views.decorators.http import require_POST
 
 from apps.audit.models import AuditEvent, ChainCheckpoint, IntegrityAlert
+from apps.audit.redaction import (
+    REDACTED, apply as apply_redaction, is_phi_bearing, may_see_clinical_content,
+    redact_event,
+)
 from apps.audit.recorder import recorder
 from apps.audit.verification import (
     acknowledge_alert,
@@ -33,10 +38,23 @@ def _manager_required(user):
 
 
 def _filtered_events(request):
-    """Apply the trail's filter form to the queryset."""
+    """Apply the trail's filter form to the queryset.
+
+    For a user barred from patient data, clinical records are excluded from the
+    free-text search entirely. Redacting the results would not be enough: a
+    search for a medical record number that returned a hit would confirm the
+    patient exists, which is itself a disclosure.
+    """
     events = AuditEvent.objects.all()
 
     query = (request.GET.get("q") or "").strip()
+    if query and not may_see_clinical_content(request.user):
+        from apps.audit.redaction import PHI_BEARING_APPS, PHI_BEARING_MODELS
+
+        for app_label in PHI_BEARING_APPS:
+            events = events.exclude(entity_type__startswith=f"{app_label}.")
+        events = events.exclude(entity_type__in=PHI_BEARING_MODELS)
+
     if query:
         events = events.filter(
             Q(entity_id__icontains=query)
@@ -74,9 +92,12 @@ def trail(request):
     events = _filtered_events(request).select_related()
     paginator = Paginator(events, PAGE_SIZE)
     page = paginator.get_page(request.GET.get("page"))
+    visible = apply_redaction(page.object_list, request.user)
 
     context = {
         "page_obj": page,
+        "events": visible,
+        "redacting": not may_see_clinical_content(request.user),
         "total": paginator.count,
         "entity_types": AuditEvent.objects.values_list("entity_type", flat=True).distinct().order_by("entity_type"),
         "actors": AuditEvent.objects.values_list("actor_username", flat=True).distinct().order_by("actor_username"),
@@ -93,28 +114,48 @@ def event_detail(request, sequence: int):
     event = get_object_or_404(AuditEvent, sequence=sequence)
     from apps.audit.hashing import hash_for_event
 
+    # Verification runs against the stored event, never the redacted view —
+    # otherwise redaction would look like tampering.
     recomputed = hash_for_event(event)
+    hash_valid = recomputed == event.hash
+
+    redacting = not may_see_clinical_content(request.user) and is_phi_bearing(event.entity_type)
+    if redacting:
+        event = redact_event(event)
+
     neighbours = AuditEvent.objects.filter(
         sequence__in=[event.sequence - 1, event.sequence + 1]
     ).order_by("sequence")
 
     return render(request, "audit/event_detail.html", {
         "event": event,
-        "recomputed_hash": recomputed,
-        "hash_valid": recomputed == event.hash,
+        "recomputed_hash": recomputed if not redacting else REDACTED,
+        "hash_valid": hash_valid,
         "neighbours": neighbours,
+        "redacting": redacting,
     })
 
 
 @login_required
 def entity_history(request, entity_type: str, entity_id: str):
     """Full change history for one record — the 'who touched this' view."""
+    if is_phi_bearing(entity_type) and not may_see_clinical_content(request.user):
+        # Redacting would not help: asking for one record's history and being
+        # shown anything at all confirms the record exists.
+        raise PermissionDenied(
+            "This record's history concerns patient data, which your role may "
+            "not see. The audit trail itself remains available to you, with "
+            "clinical content redacted."
+        )
+
     events = AuditEvent.objects.for_entity(entity_type, entity_id)
     paginator = Paginator(events, PAGE_SIZE)
+    page = paginator.get_page(request.GET.get("page"))
     return render(request, "audit/entity_history.html", {
         "entity_type": entity_type,
         "entity_id": entity_id,
-        "page_obj": paginator.get_page(request.GET.get("page")),
+        "page_obj": page,
+        "events": list(page.object_list),
         "total": paginator.count,
         "latest_label": events.values_list("entity_label", flat=True).first() or entity_id,
     })
@@ -182,7 +223,10 @@ def export_csv(request):
         "entity_id", "entity_label", "changes", "reason", "source",
         "ip_address", "request_id", "previous_hash", "hash",
     ])
+    redacting = not may_see_clinical_content(request.user)
     for event in events.iterator(chunk_size=1000):
+        if redacting and is_phi_bearing(event.entity_type):
+            event = redact_event(event)
         writer.writerow([
             event.sequence, event.timestamp.isoformat(), event.actor_username,
             event.actor_role or "", event.action, event.entity_type, event.entity_id,

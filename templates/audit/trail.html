@@ -66,6 +66,16 @@
     </div>
 </form>
 
+{% if redacting %}
+<div class="alert alert-info">
+    Your role may not see patient data, so clinical entries are shown
+    <strong>redacted</strong>: the record type, who acted, when, and the chain
+    hashes are all visible; the content is not. Clinical records are also
+    excluded from the search box, because a search that found one would itself
+    confirm the patient exists.
+</div>
+{% endif %}
+
 <div class="card">
     <div class="card-header">
         <h3>{{ total }} event{{ total|pluralize }}</h3>
@@ -81,7 +91,7 @@
                 </tr>
                 </thead>
                 <tbody>
-                {% for event in page_obj %}
+                {% for event in events %}
                     <tr>
                         <td class="mono">{{ event.sequence }}</td>
                         <td class="nowrap">{{ event.timestamp|date:"Y-m-d H:i:s" }}</td>
@@ -96,9 +106,13 @@
                                 {% else %}badge-info{% endif %}">{{ event.action }}</span>
                         </td>
                         <td>
-                            <a href="{% url 'audit:entity_history' event.entity_type event.entity_id %}">
-                                {{ event.entity_label|default:event.entity_id|truncatechars:48 }}
-                            </a>
+                            {% if event.redacted %}
+                                <span class="muted">{{ event.entity_label }}</span>
+                            {% else %}
+                                <a href="{% url 'audit:entity_history' event.entity_type event.entity_id %}">
+                                    {{ event.entity_label|default:event.entity_id|truncatechars:48 }}
+                                </a>
+                            {% endif %}
                             <div class="muted mono" style="font-size:11px">{{ event.entity_type }}</div>
                         </td>
                         <td class="muted">{{ event.changed_fields|join:", "|truncatechars:52|default:"—" }}</td>

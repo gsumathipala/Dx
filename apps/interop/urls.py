@@ -26,20 +26,12 @@ interfaces = CrudResource(
     search_fields=["name", "host"],
 )
 
-messages = CrudResource(
-    "message", InstrumentMessage, None,
-    roles=views.MANAGERS_AND_INSTALLER, title="Instrument message log",
-    columns=[("Received", "received_at", "nowrap"), ("Interface", "interface.name", ""),
-             ("Accession", "accession_number", "mono"), ("Status", "status", ""),
-             ("Applied", "results_applied", ""), ("Error", "error", "muted")],
-    search_fields=["accession_number", "error"],
-    filter_fields={"status": "status"},
-)
+
 
 urlpatterns = [
     *loinc.urls("loinc/"),
     *interfaces.urls("interfaces/"),
-    *messages.urls("messages/"),
+    path("messages/", views.InstrumentMessageListView.as_view(), name="message_list"),
     path("fhir/DiagnosticReport/<str:pk>/", views.fhir_diagnostic_report, name="fhir_report"),
     path("hl7/oru/<str:pk>/", views.hl7_oru, name="hl7_oru"),
 ]

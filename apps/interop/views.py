@@ -15,6 +15,7 @@ from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from apps.common.constants import MANAGEMENT_ROLES, SYSTEM_ROLES
+from apps.common.views import DxListView
 from apps.interop.models import InstrumentInterface, InstrumentMessage, LoincCode
 from apps.interop.services import diagnostic_report, oru_r01, report_bundle
 
@@ -177,3 +178,46 @@ def hl7_oru(request, pk):
 
 
 # ── Catalogue and interface administration ───────────────────────────────────
+
+
+class InstrumentMessageListView(DxListView):
+    """Instrument traffic, with the payload hidden from roles barred from PHI.
+
+    The columns differ by role rather than the values being blanked, so an
+    installer is not shown a table of empty cells.
+    """
+
+    model = InstrumentMessage
+    required_roles = MANAGERS_AND_INSTALLER
+    page_title = "Instrument message log"
+    search_fields = ["error"]
+    filter_fields = {"status": "status"}
+
+    CLINICAL_COLUMNS = [
+        ("Received", "received_at", "nowrap"), ("Interface", "interface.name", ""),
+        ("Accession", "accession_number", "mono"), ("Status", "status", ""),
+        ("Applied", "results_applied", ""), ("Error", "error", "muted"),
+    ]
+    REDACTED_COLUMNS = [
+        ("Received", "received_at", "nowrap"), ("Interface", "interface.name", ""),
+        ("Accession", "safe_accession", "muted"), ("Status", "status", ""),
+        ("Applied", "results_applied", ""), ("Payload", "safe_payload", "muted"),
+        ("Error", "error", "muted"),
+    ]
+
+    @property
+    def columns(self):
+        if self.request.user.may_see_patient_data:
+            return self.CLINICAL_COLUMNS
+        return self.REDACTED_COLUMNS
+
+    def get_queryset(self):
+        queryset = super().get_queryset()
+        if not self.request.user.may_see_patient_data:
+            # An accession number is a specimen identifier, so searching for
+            # one must not confirm whether it exists.
+            queryset = queryset.only(
+                "received_at", "interface", "status", "results_applied", "error",
+                "raw_payload",
+            )
+        return queryset

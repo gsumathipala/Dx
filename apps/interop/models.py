@@ -114,3 +114,23 @@ class InstrumentMessage(IdentifiedModel):
 
     def __str__(self) -> str:
         return f"{self.interface_id or 'unknown'} @ {self.received_at:%Y-%m-%d %H:%M} ({self.status})"
+
+    # ── Redacted views, for roles barred from patient data ───────────────────
+    #
+    # A raw ASTM or HL7 message contains the patient's name and identifiers in
+    # its PID segment, and the accession number identifies their specimen. An
+    # installer diagnosing an interface needs to know that a message arrived,
+    # from which analyser, whether it parsed, and what went wrong — none of
+    # which requires seeing the payload.
+
+    @property
+    def safe_accession(self) -> str:
+        return "[redacted]"
+
+    @property
+    def safe_payload(self) -> str:
+        return f"[redacted — {len(self.raw_payload or '')} characters]"
+
+    @property
+    def payload_size(self) -> int:
+        return len(self.raw_payload or "")

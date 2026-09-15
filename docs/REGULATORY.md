@@ -201,6 +201,16 @@ validation evidence.
 | Automatic logoff, §164.312(a)(2)(iii) | Idle session termination | `RegulatorySessionMiddleware` |
 | Consent and withdrawal | Per-purpose consent records | `PatientConsent` |
 | Emergency access ("break the glass") | Flagged on the access record | `PHIAccessLog.break_the_glass` |
+| Minimum necessary, §164.502(b) | The installer role is barred from patient data entirely, and identifiers are redacted from the screens it *can* reach | `apps/accounts/phi_barrier.py`, `apps/audit/redaction.py` |
+
+**Redaction, not concealment.** The installer needs the audit trail to confirm
+the chain is intact and that changes are attributable, so clinical entries are
+shown with their content removed rather than withheld: record type, actor,
+time, action and hashes remain, values do not. Record keys are replaced by a
+keyed digest, because Safe Harbor (§164.514(b)(2)(i)(R)) counts "any other
+unique identifying number" as an identifier. Clinical records are excluded from
+the trail's free-text search outright — redacting a result would still confirm
+the patient exists.
 
 PHI access is logged separately from the change audit trail because reads vastly
 outnumber writes and are pruned on a different retention schedule.

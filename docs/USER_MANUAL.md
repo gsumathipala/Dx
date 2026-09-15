@@ -140,6 +140,17 @@ microbiology, billing, specimen tracking and the global search are **refused**.
 This is enforced on every request, not by leaving links out of the menu — an
 installer who types a patient URL directly is refused just the same.
 
+**No identifiers leak through the screens it can reach.** The installer keeps
+the audit trail, because verifying it is part of the job — but clinical entries
+appear redacted: the record type, who acted, when, and the chain hashes are
+shown; names, medical record numbers, dates of birth and accession numbers are
+not. Record keys are replaced by a short token, so an installer can still see
+that several entries concern the same record without being handed a key. The
+same applies to the instrument message log, where a raw ASTM or HL7 payload
+would otherwise contain the patient's name. Clinical records are excluded from
+the audit search entirely: a search that found one would itself confirm the
+patient exists.
+
 The installer also cannot configure the test catalogue, clinical rules, QC
 targets or retention policies. Those are the laboratory's clinical decisions,
 not the maintainer's.

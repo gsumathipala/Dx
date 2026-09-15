@@ -14,7 +14,7 @@
     </div>
     <div class="card-body">
         <div class="timeline">
-            {% for event in page_obj %}
+            {% for event in events %}
                 <div class="timeline-item">
                     <div class="when">
                         {{ event.timestamp|date:"Y-m-d H:i:s" }} ·
