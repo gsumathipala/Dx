@@ -78,6 +78,12 @@ class Command(BaseCommand):
             help="Do not archive the audit trail. The reset is still recorded.",
         )
         parser.add_argument(
+            "--encrypt-archive", default="",
+            metavar="PASSPHRASE",
+            help="Encrypt the audit archive with AES-256-GCM. Strongly advised: "
+                 "the archive is patient data sitting on a filesystem.",
+        )
+        parser.add_argument(
             "--keep-audit", action="store_true",
             help="Wipe operational data but leave the audit trail in place.",
         )
@@ -118,7 +124,9 @@ class Command(BaseCommand):
 
         archive_path = None
         if not options["keep_audit"] and not options["skip_audit_archive"]:
-            archive_path = self._archive_audit_trail(options["archive_to"])
+            archive_path = self._archive_audit_trail(
+                options["archive_to"], passphrase=options["encrypt_archive"]
+            )
 
         previous_head, previous_count = self._chain_head()
 
@@ -206,7 +214,7 @@ class Command(BaseCommand):
         count = AuditEvent.objects.count()
         return (head["hash"] if head else None), count
 
-    def _archive_audit_trail(self, directory: str) -> Path | None:
+    def _archive_audit_trail(self, directory: str, *, passphrase: str = "") -> Path | None:
         """Verify then write the trail to a file before it is destroyed."""
         from apps.audit.models import AuditEvent
         from apps.audit.verification import verify_chain
@@ -259,7 +267,23 @@ class Command(BaseCommand):
                 }, default=str) + "\n")
                 written += 1
 
-        self.stdout.write(f"Archived {written} audit event(s) to {path}")
+        if passphrase:
+            from apps.compliance.encryption import encrypt_file
+
+            encrypted = encrypt_file(path, path.with_suffix(".jsonl.dx"), passphrase)
+            path.unlink()
+            path = encrypted
+            self.stdout.write(
+                f"Archived and encrypted {written} audit event(s) to {path}\n"
+                "Keep the passphrase safe: without it the archive cannot be read, "
+                "and there is no recovery path by design."
+            )
+        else:
+            self.stdout.write(f"Archived {written} audit event(s) to {path}")
+            self.stdout.write(self.style.WARNING(
+                "The archive is unencrypted patient data on a filesystem. "
+                "Re-run with --encrypt-archive, or protect it another way."
+            ))
         return path
 
     # ── The wipe ─────────────────────────────────────────────────────────────

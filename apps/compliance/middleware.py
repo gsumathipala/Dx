@@ -10,12 +10,25 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.utils import timezone
 
-#: Paths that identify a patient record being viewed, for PHI access logging.
-PHI_PATH_PATTERNS = [
-    re.compile(r"^/patients/(?P<pk>[^/]+)/"),
-    re.compile(r"^/patient-360/(?P<pk>[^/]+)/"),
-    re.compile(r"^/reports/(?P<pk>[^/]+)/"),
-]
+#: Views whose response identifies one patient, for HIPAA access logging.
+#:
+#: Matched on the resolved view name rather than the URL, because path patterns
+#: silently stop matching when a route moves. They did: these were written
+#: against the Next.js URL scheme, so patient reports went unlogged after the
+#: rewrite moved them to /reporting/reports/<pk>/.
+#:
+#: Each entry maps a view name to the URL keyword holding the identifier, and
+#: how to resolve it to a patient.
+PHI_VIEWS = {
+    "patients:detail": ("pk", "patient"),
+    "patients:trend": ("pk", "patient"),
+    "patients:patient_update": ("pk", "patient"),
+    "reporting:report_detail": ("pk", "order"),
+    "reporting:amend": ("pk", "order"),
+    "laboratory:result_entry": ("pk", "order"),
+    "interop:fhir_report": ("pk", "order"),
+    "interop:hl7_oru": ("pk", "order"),
+}
 
 EXEMPT_PREFIXES = ("/static/", "/media/", "/accounts/login", "/accounts/logout", "/healthz")
 
@@ -84,32 +97,49 @@ class PHIAccessLogMiddleware:
         if request.method != "GET" or response.status_code >= 400:
             return response
 
-        patient_pk = self._patient_from_path(request.path)
-        if patient_pk is None:
+        patient = self._patient_for(request)
+        if patient is None:
             return response
 
-        self._log(request, user, patient_pk)
+        self._log(request, user, patient)
         return response
 
     @staticmethod
-    def _patient_from_path(path: str) -> str | None:
-        for pattern in PHI_PATH_PATTERNS:
-            match = pattern.match(path)
-            if match:
-                return match.group("pk")
-        return None
-
-    @staticmethod
-    def _log(request, user, patient_pk: str) -> None:
-        from apps.compliance.models import PHIAccessLog
+    def _patient_for(request):
+        """Resolve the patient this view discloses, if any."""
         from apps.patients.models import Patient
 
-        patient = Patient.objects.filter(pk=patient_pk).only("id", "mrn").first()
+        match = request.resolver_match
+        if match is None or match.view_name not in PHI_VIEWS:
+            return None
+
+        kwarg, kind = PHI_VIEWS[match.view_name]
+        identifier = match.kwargs.get(kwarg)
+        if identifier is None:
+            return None
+
+        if kind == "patient":
+            return Patient.objects.filter(pk=identifier).only("id", "mrn").first()
+
+        from apps.laboratory.models import Order
+
+        order = (
+            Order.objects.filter(pk=identifier)
+            .select_related("patient")
+            .only("id", "patient__id", "patient__mrn")
+            .first()
+        )
+        return order.patient if order else None
+
+    @staticmethod
+    def _log(request, user, patient) -> None:
+        from apps.compliance.models import PHIAccessLog
+
         PHIAccessLog.objects.create(
             user=user,
             username=user.username,
             patient=patient,
-            patient_mrn=patient.mrn if patient else "",
+            patient_mrn=patient.mrn,
             path=request.path[:512],
             method=request.method,
             purpose=request.GET.get("purpose", "treatment"),

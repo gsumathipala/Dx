@@ -71,6 +71,8 @@ are also listed in [INSTALL.md](INSTALL.md#demonstration-sign-in-credentials).
 Full setup instructions, the demonstration credentials, troubleshooting and a
 pre-production checklist are in **[INSTALL.md](INSTALL.md)**. How to use the
 system, by role and by task, is in **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)**.
+The API surface and the rules any new endpoint must follow are in
+**[docs/API.md](docs/API.md)**.
 
 ### Running the audit worker
 

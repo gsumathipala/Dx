@@ -199,6 +199,7 @@ validation evidence.
 | Audit controls, §164.312(b) | Every view of an identifiable patient record is logged | `PHIAccessLogMiddleware` |
 | Accounting of disclosures, §164.528 | Disclosures outside treatment/payment/operations recorded for six years | `DisclosureAccounting` |
 | Automatic logoff, §164.312(a)(2)(iii) | Idle session termination | `RegulatorySessionMiddleware` |
+| Encryption, §164.312(a)(2)(iv) and (e)(2)(ii) | AES-256-GCM with scrypt for archives and exports | `apps/compliance/encryption.py` |
 | Consent and withdrawal | Per-purpose consent records | `PatientConsent` |
 | Emergency access ("break the glass") | Flagged on the access record | `PHIAccessLog.break_the_glass` |
 | Minimum necessary, §164.502(b) | The installer role is barred from patient data entirely, and identifiers are redacted from the screens it *can* reach | `apps/accounts/phi_barrier.py`, `apps/audit/redaction.py` |
