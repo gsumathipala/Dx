@@ -219,3 +219,76 @@ class CapaTests(TestCase):
         self.assertEqual(first.reference, f"CAPA-{year}-0001")
         self.assertEqual(second.reference, f"CAPA-{year}-0002")
         self.assertFalse(first.is_overdue)
+
+
+class AmendedReportTests(TestCase):
+    """CAP: a corrected report retains the original and is signed."""
+
+    def setUp(self):
+        from apps.common.constants import AuditAction
+        from apps.laboratory.services import create_order, save_results
+
+        self.password = PASSWORD if (PASSWORD := "Str0ng-Pass!23") else ""
+        self.tech = make_user("amend-tech", password=self.password)
+        self.senior = make_user("amend-senior", role="manager", password=self.password)
+        self.test = make_test(code="AMD")
+        grant_competency(self.tech, test=self.test)
+        grant_competency(self.senior, test=self.test)
+        passing_qc(self.test)
+
+        patient = make_patient(mrn="MRN-AMEND")
+        self.order = create_order(patient=patient, tests=[self.test], ordered_by="Dr A")
+        save_results(order=self.order, values={self.test.id: "5.0"}, user=self.tech)
+        save_results(order=self.order, values={self.test.id: "5.0"}, user=self.senior,
+                     action=AuditAction.CLINICAL_VERIFY, password=self.password)
+        self.result = self.order.results.get(test_key=self.test.id)
+
+    def test_amendment_retains_the_original_and_signs_the_change(self):
+        from apps.laboratory.services import amend_report
+
+        amendment = amend_report(
+            order=self.order, result=self.result, corrected_value="7.4",
+            reason="transcription", narrative="Transposed digits at entry.",
+            user=self.senior, password=self.password, notified_method="phone",
+        )
+        self.assertEqual(amendment.original_value, "5.0")
+        self.assertEqual(amendment.corrected_value, "7.4")
+        self.assertEqual(amendment.version, 2)
+        self.assertIsNotNone(amendment.signature)
+        self.assertTrue(amendment.clinician_notified)
+
+        self.result.refresh_from_db()
+        self.assertEqual(self.result.value, "7.4")
+
+    def test_amendment_opens_a_nonconformance(self):
+        from apps.laboratory.services import amend_report
+
+        amendment = amend_report(
+            order=self.order, result=self.result, corrected_value="9.1",
+            reason="analytical", narrative="Instrument drift found on review.",
+            user=self.senior, password=self.password, notified_method="phone",
+        )
+        self.assertIsNotNone(amendment.corrective_action)
+        self.assertTrue(amendment.corrective_action.patient_impact)
+
+    def test_amendment_requires_the_signer_password(self):
+        from apps.laboratory.services import amend_report
+
+        with self.assertRaises(ControlViolation):
+            amend_report(
+                order=self.order, result=self.result, corrected_value="7.4",
+                reason="transcription", narrative="x", user=self.senior, password="wrong",
+            )
+        self.result.refresh_from_db()
+        self.assertEqual(self.result.value, "5.0")
+
+    def test_versions_increment_across_amendments(self):
+        from apps.laboratory.services import amend_report
+
+        first = amend_report(order=self.order, result=self.result, corrected_value="6.0",
+                             reason="transcription", narrative="a", user=self.senior,
+                             password=self.password, notified_method="phone")
+        second = amend_report(order=self.order, result=self.result, corrected_value="6.5",
+                              reason="analytical", narrative="b", user=self.senior,
+                              password=self.password, notified_method="phone")
+        self.assertEqual((first.version, second.version), (2, 3))

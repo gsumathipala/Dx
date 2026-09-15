@@ -46,6 +46,14 @@ synchronously; everything else is queued. If the database is unreachable the
 event is spooled to disk and replayed by the audit worker. The queue is never
 silently dropped.
 
+**The one gap, stated plainly.** Django does not emit model signals for
+`bulk_create`, `bulk_update` or `QuerySet.update`, so a write made that way
+produces no audit event. Nothing in the application takes those paths on
+clinical data; the legacy importer is the only bulk writer and it records an
+explicit summary event instead. Any future bulk write must do the same, or wrap
+itself in `suppress_auditing()` so the omission is visible in the code rather
+than accidental.
+
 **Deliberate exceptions.** `TRUNCATE` protection blocks Django's test-database
 teardown, so the test runner drops the triggers on the *test* database only
 (`config/test_runner.py`); the tests that assert immutability reinstate them.

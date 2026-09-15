@@ -1,13 +1,16 @@
 {% extends "base.html" %}
-{% block title %}Results worklist{% endblock %}
-{% block page_title %}Results worklist{% endblock %}
-{% block page_subtitle %}<div class="subtitle">Orders awaiting entry, technical validation or clinical verification</div>{% endblock %}
+{% block title %}Worklist{% endblock %}
+{% block page_title %}Worklist{% endblock %}
+{% block page_subtitle %}
+    <div class="subtitle">Orders awaiting entry, technical validation or clinical verification</div>
+{% endblock %}
 
 {% block content %}
 <form method="get" class="filters">
     <div class="field">
         <label for="q">Search</label>
-        <input type="search" id="q" name="q" value="{{ filters.q|default:'' }}" placeholder="Accession, MRN or surname">
+        <input type="search" id="q" name="q" value="{{ filters.q|default:'' }}"
+               placeholder="Accession, MRN or surname">
     </div>
     <div class="field">
         <label for="status">Status</label>
@@ -24,35 +27,70 @@
     </div>
 </form>
 
-<div class="card">
-    <div class="card-header"><h3>{{ page_obj.paginator.count }} open order{{ page_obj.paginator.count|pluralize }}</h3></div>
-    <div class="card-body flush">
-        <div class="table-wrap">
-            <table class="data">
-                <thead><tr>
-                    <th>Accession</th><th>Patient</th><th>Tests</th><th>Entered</th>
-                    <th>Priority</th><th>Status</th><th>Queue</th><th>Age</th><th></th>
-                </tr></thead>
-                <tbody>
-                {% for order in page_obj %}
-                    <tr>
-                        <td class="mono">{{ order.accession_number }}</td>
-                        <td>{{ order.patient.full_name }}<div class="muted mono" style="font-size:11px">{{ order.patient.mrn }}</div></td>
-                        <td class="muted">{% for test in order.tests.all %}{{ test.code }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
-                        <td>{{ order.results.count }} / {{ order.tests.count }}</td>
-                        <td>{% if order.priority == "STAT" %}<span class="badge badge-danger">STAT</span>{% else %}{{ order.priority }}{% endif %}</td>
-                        <td>{{ order.status|status_badge }}</td>
-                        <td class="muted">{{ order.queue.name|default:"—" }}</td>
-                        <td class="nowrap">{{ order.turnaround_hours|floatformat:1 }}h</td>
-                        <td class="right"><a class="btn btn-sm btn-primary" href="{% url 'laboratory:result_entry' order.pk %}">Enter</a></td>
-                    </tr>
-                {% empty %}
-                    <tr><td colspan="9" class="empty">Nothing awaiting results.</td></tr>
-                {% endfor %}
-                </tbody>
-            </table>
+<form method="post" action="{% url 'laboratory:verify_batch' %}">
+    {% csrf_token %}
+
+    {% if verifiable_count %}
+        <div class="batch-bar no-print">
+            <span class="count" data-dx-batch-count>none selected</span>
+            <span class="muted" style="font-size:12px">
+                {{ verifiable_count }} order{{ verifiable_count|pluralize }} on this page can be
+                verified. One signing covers the batch; each order is still checked
+                individually against competency, QC and the self-verification rule.
+            </span>
+            <span class="btn-group" data-dx-batch-actions hidden>
+                <input type="password" name="password" placeholder="Your password"
+                       style="width:170px" autocomplete="current-password">
+                <button class="btn btn-primary" type="submit">Verify selected</button>
+            </span>
         </div>
+    {% endif %}
+
+    <div class="card">
+        <div class="card-header">
+            <h3>{{ page_obj.paginator.count }} open order{{ page_obj.paginator.count|pluralize }}</h3>
+        </div>
+        <div class="card-body flush">
+            <div class="table-wrap">
+                <table class="data" data-dx-batch>
+                    <thead><tr>
+                        <th style="width:32px">
+                            {% if verifiable_count %}
+                                <input type="checkbox" data-dx-batch-all aria-label="Select all verifiable">
+                            {% endif %}
+                        </th>
+                        <th>Accession</th><th>Patient</th><th>Tests</th><th>Entered</th>
+                        <th>Priority</th><th>Status</th><th>Age</th><th></th>
+                    </tr></thead>
+                    <tbody>
+                    {% for order in page_obj %}
+                        <tr>
+                            <td>
+                                {% if order.pk in verifiable %}
+                                    <input type="checkbox" name="orders" value="{{ order.pk }}"
+                                           aria-label="Select {{ order.accession_number }}">
+                                {% endif %}
+                            </td>
+                            <td class="mono">{{ order.accession_number }}</td>
+                            <td>{{ order.patient.full_name }}
+                                <div class="muted mono" style="font-size:11px">{{ order.patient.mrn }}</div></td>
+                            <td class="muted">{% for test in order.tests.all %}{{ test.code }}{% if not forloop.last %}, {% endif %}{% endfor %}</td>
+                            <td>{{ order.results.count }} / {{ order.tests.count }}</td>
+                            <td>{% if order.priority == "STAT" %}<span class="badge badge-danger">STAT</span>{% else %}{{ order.priority }}{% endif %}</td>
+                            <td>{{ order.status|status_badge }}</td>
+                            <td class="nowrap">{{ order.turnaround_hours|floatformat:1 }}h</td>
+                            <td class="right">
+                                <a class="btn btn-sm btn-primary" href="{% url 'laboratory:result_entry' order.pk %}">Open</a>
+                            </td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="9" class="empty">Nothing awaiting results.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+        {% include "partials/pagination.html" %}
     </div>
-    {% include "partials/pagination.html" %}
-</div>
+</form>
 {% endblock %}

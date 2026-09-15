@@ -86,12 +86,68 @@ def results_worklist(request):
         orders = orders.filter(status=status)
 
     paginator = Paginator(orders, 40)
+    page = paginator.get_page(request.GET.get("page"))
+
+    # An order is offerable for batch verification when it has been technically
+    # validated by somebody other than the person looking at it. The server
+    # re-checks every gate on submission regardless.
+    verifiable = set()
+    for order in page:
+        if order.status != OrderStatus.TECHNICALLY_VALIDATED:
+            continue
+        if request.user.username in {r.entered_by for r in order.results.all()}:
+            continue
+        verifiable.add(order.pk)
+
     return render(request, "laboratory/results_worklist.html", {
-        "page_obj": paginator.get_page(request.GET.get("page")),
+        "page_obj": page,
         "statuses": OrderStatus.choices,
         "filters": request.GET,
         "querystring": "",
+        "verifiable": verifiable,
+        "verifiable_count": len(verifiable),
     })
+
+
+@login_required
+def verify_batch_view(request):
+    """Clinically verify a selection of orders from the worklist."""
+    from apps.laboratory.services import verify_batch
+
+    if request.user.role not in LAB_STAFF:
+        messages.error(request, "Your role does not permit verification.")
+        return redirect("operations:dashboard")
+
+    order_ids = request.POST.getlist("orders")
+    password = request.POST.get("password") or ""
+
+    if not order_ids:
+        messages.error(request, "Select at least one order to verify.")
+        return redirect("laboratory:results")
+    if not password:
+        messages.error(request, "Your password is required to apply an electronic signature.")
+        return redirect("laboratory:results")
+
+    orders = (
+        Order.objects.filter(pk__in=order_ids)
+        .select_related("patient")
+        .prefetch_related("results", "tests")
+    )
+    verified, refusals = verify_batch(
+        orders=list(orders), user=request.user, password=password,
+        request=request, reason=request.POST.get("reason") or None,
+    )
+
+    if verified:
+        messages.success(
+            request,
+            f"Verified and released {len(verified)} order"
+            f"{'' if len(verified) == 1 else 's'}.",
+        )
+    for order, reason in refusals:
+        messages.error(request, f"{order.accession_number}: {reason}")
+
+    return redirect("laboratory:results")
 
 
 @login_required
@@ -134,13 +190,93 @@ def result_entry(request, pk):
     return render(request, "laboratory/result_entry.html", {
         "order": order,
         "form": form,
-        "existing": {r.test_key: r for r in order.results.all()},
+        "rows": _entry_rows(order, form),
+        "next_action": _next_action(order, request.user),
         "signatures": order.signatures.all(),
         "delta_flags": order.delta_flags.select_related("test", "rule"),
         "critical_values": order.critical_values.all(),
         "audit_events": AuditEvent.objects.for_entity("laboratory.Order", order.pk)[:10],
         "entity_type": "laboratory.Order",
     })
+
+
+def _entry_rows(order, form):
+    """One row per test, carrying the patient's previous value for that test.
+
+    Whether 131 mmol/L is plausible depends on what it was last time. That
+    comparison used to live on a different screen; the delta-check engine
+    already fetches it, so it costs one extra query for the whole order rather
+    than one per test.
+    """
+    from apps.laboratory.models import Result
+
+    existing = {r.test_key: r for r in order.results.all()}
+
+    previous_by_test = {}
+    earlier = (
+        Result.objects.filter(
+            order__patient_id=order.patient_id,
+            numeric_value__isnull=False,
+            order__timestamp__lt=order.timestamp,
+        )
+        .exclude(order_id=order.pk)
+        .select_related("order", "test")
+        .order_by("test_key", "-order__timestamp")
+    )
+    for result in earlier:
+        previous_by_test.setdefault(result.test_key, result)
+
+    rows = []
+    for test, field in form.result_fields:
+        current = existing.get(test.id)
+        previous = previous_by_test.get(test.id)
+        direction = ""
+        if previous is not None and current is not None and current.numeric_value is not None:
+            if current.numeric_value > previous.numeric_value:
+                direction = "up"
+            elif current.numeric_value < previous.numeric_value:
+                direction = "down"
+        rows.append({
+            "test": test,
+            "field": field,
+            "result": current,
+            "previous": previous,
+            "direction": direction,
+        })
+    return rows
+
+
+def _next_action(order, user):
+    """The single action this order is ready for, given who is looking at it.
+
+    Offering all three buttons on every visit meant two of them were usually
+    refused. The order's state already determines which one applies.
+    """
+    from apps.common.constants import AuditAction
+
+    if order.status in {OrderStatus.PENDING, OrderStatus.RECEIVED,
+                        OrderStatus.IN_PROGRESS, OrderStatus.RESULTED}:
+        if order.results.exists() and order.status == OrderStatus.RESULTED:
+            return {"value": AuditAction.TECHNICAL_VALIDATE,
+                    "label": "Technically validate",
+                    "needs_password": True,
+                    "hint": "Confirms the analytical run is sound."}
+        return {"value": "", "label": "Save results", "needs_password": False,
+                "hint": "Records the values without authorising them."}
+
+    if order.status == OrderStatus.TECHNICALLY_VALIDATED:
+        entered_by = {r.entered_by for r in order.results.all()}
+        if user.username in entered_by:
+            return {"value": None, "label": "", "needs_password": False,
+                    "hint": "You entered these results, so a second qualified "
+                            "person must verify them."}
+        return {"value": AuditAction.CLINICAL_VERIFY,
+                "label": "Clinically verify and release",
+                "needs_password": True,
+                "hint": "Completes the order and releases the report."}
+
+    return {"value": None, "label": "", "needs_password": False,
+            "hint": "This order is complete. Corrections require an amended report."}
 
 
 def _report_engine_outcome(request, outcome: dict) -> None:
@@ -206,138 +342,4 @@ def receiving(request):
 # ── Phlebotomy ───────────────────────────────────────────────────────────────
 
 
-class PhlebotomyListView(DxListView):
-    model = PhlebotomySchedule
-    required_roles = ACCESSIONING_ROLES + (Role.PHLEBOTOMIST,)
-    page_title = "Phlebotomy rounds"
-    search_fields = ["patient__mrn", "patient__last_name", "ward_location"]
-    filter_fields = {"status": "status"}
-    columns = [
-        ("Scheduled", "scheduled_at", "nowrap"), ("Patient", "patient.full_name", ""),
-        ("MRN", "patient.mrn", "mono"), ("Ward", "ward_location", ""),
-        ("Type", "collection_type", ""), ("Assigned", "assigned_to.name", ""),
-        ("Status", "status", ""),
-    ]
-    create_url_name = "laboratory:phlebotomy_create"
-    update_url_name = "laboratory:phlebotomy_update"
-
-    def get_queryset(self):
-        return super().get_queryset().select_related("patient", "assigned_to")
-
-
-class PhlebotomyCreateView(DxCreateView):
-    model = PhlebotomySchedule
-    form_class = lab_forms.PhlebotomyForm
-    required_roles = ACCESSIONING_ROLES
-    page_title = "phlebotomy round"
-    success_url = reverse_lazy("laboratory:phlebotomy")
-
-
-class PhlebotomyUpdateView(DxUpdateView):
-    model = PhlebotomySchedule
-    form_class = lab_forms.PhlebotomyForm
-    required_roles = ACCESSIONING_ROLES + (Role.PHLEBOTOMIST,)
-    page_title = "phlebotomy round"
-    success_url = reverse_lazy("laboratory:phlebotomy")
-
-
 # ── Configuration: tests, queues, retention ──────────────────────────────────
-
-
-class TestListView(DxListView):
-    model = TestDefinition
-    required_roles = MANAGERS
-    page_title = "Test definitions"
-    page_subtitle = "The test catalogue, its units, reference intervals and critical limits."
-    search_fields = ["code", "name", "loinc_code"]
-    columns = [
-        ("Code", "code", "mono"), ("Name", "name", ""),
-        ("Department", "department.name", ""), ("Units", "units", ""),
-        ("Reference", "reference_display", "nowrap"), ("TAT (h)", "tat_hours", ""),
-        ("LOINC", "loinc_code", "mono"), ("Active", "active", ""),
-    ]
-    create_url_name = "laboratory:test_create"
-    update_url_name = "laboratory:test_update"
-
-    def get_queryset(self):
-        return super().get_queryset().select_related("department")
-
-
-class TestCreateView(DxCreateView):
-    model = TestDefinition
-    form_class = lab_forms.TestDefinitionForm
-    required_roles = MANAGERS
-    page_title = "test definition"
-    success_url = reverse_lazy("laboratory:test_list")
-
-
-class TestUpdateView(DxUpdateView):
-    model = TestDefinition
-    form_class = lab_forms.TestDefinitionForm
-    required_roles = MANAGERS
-    page_title = "test definition"
-    success_url = reverse_lazy("laboratory:test_list")
-
-
-class QueueListView(DxListView):
-    model = AuthorizationQueue
-    required_roles = MANAGERS
-    page_title = "Authorisation queues"
-    search_fields = ["name", "description"]
-    columns = [
-        ("Name", "name", ""), ("Department", "department.name", ""),
-        ("Allowed roles", "allowed_roles", ""), ("Created", "created_at", "nowrap"),
-    ]
-    create_url_name = "laboratory:queue_create"
-    update_url_name = "laboratory:queue_update"
-
-
-class QueueCreateView(DxCreateView):
-    model = AuthorizationQueue
-    form_class = lab_forms.QueueForm
-    required_roles = MANAGERS
-    page_title = "queue"
-    success_url = reverse_lazy("laboratory:queue_list")
-
-    def form_valid(self, form):
-        form.instance.created_by = self.request.user.username
-        return super().form_valid(form)
-
-
-class QueueUpdateView(DxUpdateView):
-    model = AuthorizationQueue
-    form_class = lab_forms.QueueForm
-    required_roles = MANAGERS
-    page_title = "queue"
-    success_url = reverse_lazy("laboratory:queue_list")
-
-
-class RetentionListView(DxListView):
-    model = RetentionPolicy
-    required_roles = MANAGERS
-    page_title = "Sample retention policies"
-    page_subtitle = "How long each specimen type is kept before disposal."
-    search_fields = ["specimen_type"]
-    columns = [
-        ("Specimen type", "specimen_type", ""), ("Days", "retention_days", ""),
-        ("Storage", "temperature", ""), ("Disposal", "disposal_method", ""),
-        ("Active", "active", ""),
-    ]
-    create_url_name = "laboratory:retention_create"
-    update_url_name = "laboratory:retention_update"
-
-
-class RetentionCreateView(DxCreateView):
-    model = RetentionPolicy
-    form_class = lab_forms.RetentionPolicyForm
-    required_roles = MANAGERS
-    page_title = "retention policy"
-    success_url = reverse_lazy("laboratory:retention_list")
-
-
-class RetentionUpdateView(DxUpdateView):
-    model = RetentionPolicy
-    form_class = lab_forms.RetentionPolicyForm
-    required_roles = MANAGERS
-    page_title = "retention policy"
-    success_url = reverse_lazy("laboratory:retention_list")

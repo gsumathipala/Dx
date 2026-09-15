@@ -224,9 +224,6 @@ def apply_signature(
     return signature
 
 
-def signatures_for(entity_type: str, entity_id: str):
-    return ElectronicSignature.objects.filter(entity_type=entity_type, entity_id=str(entity_id))
-
 
 # ── 21 CFR Part 11 §11.300: account security ─────────────────────────────────
 

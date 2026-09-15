@@ -1,14 +1,16 @@
-"""Histopathology and microbiology workbenches."""
+"""Histopathology and microbiology workbenches.
+
+The bench screens are written out below; the supporting registries are declared
+as ``CrudResource`` objects in ``urls.py``.
+"""
 from __future__ import annotations
 
 from django import forms
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import redirect, render
-from django.urls import reverse_lazy
 
 from apps.common.constants import LAB_STAFF_ROLES, MANAGEMENT_ROLES
-from apps.common.views import DxCreateView, DxListView, DxUpdateView
 from apps.specialty.models import (
     Antibiotic, HistoBlock, HistoSlide, MicroCulture, SusceptibilityResult,
 )
@@ -90,138 +92,3 @@ def microbiology(request):
             interpretation=SusceptibilityResult.Interpretation.RESISTANT
         ).select_related("antibiotic")[:25],
     })
-
-
-class HistoBlockListView(DxListView):
-    model = HistoBlock
-    required_roles = LAB_STAFF
-    page_title = "Histology blocks"
-    search_fields = ["block_id", "tissue_type"]
-    columns = [("Block", "block_id", "mono"), ("Tissue", "tissue_type", ""),
-               ("Status", "status", ""), ("Grossed by", "grossed_by", ""),
-               ("Archive", "archive_location", "")]
-    create_url_name = "specialty:block_create"
-    update_url_name = "specialty:block_update"
-
-
-class HistoBlockCreateView(DxCreateView):
-    model = HistoBlock
-    form_class = HistoBlockForm
-    required_roles = LAB_STAFF
-    page_title = "block"
-    success_url = reverse_lazy("specialty:blocks")
-
-
-class HistoBlockUpdateView(DxUpdateView):
-    model = HistoBlock
-    form_class = HistoBlockForm
-    required_roles = LAB_STAFF
-    page_title = "block"
-    success_url = reverse_lazy("specialty:blocks")
-
-
-class HistoSlideListView(DxListView):
-    model = HistoSlide
-    required_roles = LAB_STAFF
-    page_title = "Histology slides"
-    search_fields = ["slide_id", "stain"]
-    columns = [("Slide", "slide_id", "mono"), ("Block", "block.block_id", "mono"),
-               ("Stain", "stain", ""), ("Status", "status", ""), ("By", "stained_by", "")]
-    create_url_name = "specialty:slide_create"
-    update_url_name = "specialty:slide_update"
-
-
-class HistoSlideCreateView(DxCreateView):
-    model = HistoSlide
-    form_class = HistoSlideForm
-    required_roles = LAB_STAFF
-    page_title = "slide"
-    success_url = reverse_lazy("specialty:slides")
-
-
-class HistoSlideUpdateView(DxUpdateView):
-    model = HistoSlide
-    form_class = HistoSlideForm
-    required_roles = LAB_STAFF
-    page_title = "slide"
-    success_url = reverse_lazy("specialty:slides")
-
-
-class CultureListView(DxListView):
-    model = MicroCulture
-    required_roles = LAB_STAFF
-    page_title = "Cultures"
-    columns = [("Order", "order.accession_number", "mono"), ("Status", "status", ""),
-               ("Incubator", "incubator_location", ""), ("Set up", "setup_time", "nowrap"),
-               ("Hours", "incubation_hours", "")]
-    create_url_name = "specialty:culture_create"
-    update_url_name = "specialty:culture_update"
-
-    def get_queryset(self):
-        return super().get_queryset().select_related("order")
-
-
-class CultureCreateView(DxCreateView):
-    model = MicroCulture
-    form_class = MicroCultureForm
-    required_roles = LAB_STAFF
-    page_title = "culture"
-    success_url = reverse_lazy("specialty:cultures")
-
-
-class CultureUpdateView(DxUpdateView):
-    model = MicroCulture
-    form_class = MicroCultureForm
-    required_roles = LAB_STAFF
-    page_title = "culture"
-    success_url = reverse_lazy("specialty:cultures")
-
-
-class SusceptibilityListView(DxListView):
-    model = SusceptibilityResult
-    required_roles = LAB_STAFF
-    page_title = "Susceptibility results"
-    search_fields = ["organism"]
-    columns = [("Organism", "organism", ""), ("Antibiotic", "antibiotic.name", ""),
-               ("MIC", "mic", ""), ("Zone", "zone_diameter", ""),
-               ("Interpretation", "interpretation", ""), ("Reported", "reported", ""),
-               ("Standard", "standard", "")]
-    create_url_name = "specialty:susceptibility_create"
-
-    def get_queryset(self):
-        return super().get_queryset().select_related("antibiotic", "culture")
-
-
-class SusceptibilityCreateView(DxCreateView):
-    model = SusceptibilityResult
-    form_class = SusceptibilityForm
-    required_roles = LAB_STAFF
-    page_title = "susceptibility result"
-    success_url = reverse_lazy("specialty:susceptibilities")
-
-
-class AntibioticListView(DxListView):
-    model = Antibiotic
-    required_roles = MANAGERS
-    page_title = "Antibiotics"
-    search_fields = ["name", "code"]
-    columns = [("Name", "name", ""), ("Code", "code", "mono"),
-               ("Class", "drug_class", ""), ("Tier", "tier", ""), ("Active", "active", "")]
-    create_url_name = "specialty:antibiotic_create"
-    update_url_name = "specialty:antibiotic_update"
-
-
-class AntibioticCreateView(DxCreateView):
-    model = Antibiotic
-    form_class = AntibioticForm
-    required_roles = MANAGERS
-    page_title = "antibiotic"
-    success_url = reverse_lazy("specialty:antibiotics")
-
-
-class AntibioticUpdateView(DxUpdateView):
-    model = Antibiotic
-    form_class = AntibioticForm
-    required_roles = MANAGERS
-    page_title = "antibiotic"
-    success_url = reverse_lazy("specialty:antibiotics")

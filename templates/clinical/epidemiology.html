@@ -4,9 +4,9 @@
 {% block page_subtitle %}<div class="subtitle">Conditions detected that must be reported to public health authorities</div>{% endblock %}
 
 {% block content %}
-{% if overdue %}
+{% if overdue_count %}
     <div class="alert alert-error">
-        <strong>{{ overdue|length }} notification{{ overdue|length|pluralize }} past the statutory reporting window.</strong>
+        <strong>{{ overdue_count }} notification{{ overdue_count|pluralize }} past the statutory reporting window.</strong>
     </div>
 {% endif %}
 

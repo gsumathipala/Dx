@@ -153,6 +153,15 @@ class AccountSecurityState(models.Model):
 # ── CLIA §493.801: proficiency testing / external quality assessment ─────────
 
 
+class ProficiencySurveyQuerySet(models.QuerySet):
+    def overdue(self):
+        """Unsubmitted surveys past their due date.
+
+        Mirrors ``ProficiencySurvey.is_overdue`` for a single instance.
+        """
+        return self.filter(submitted_date__isnull=True, due_date__lt=timezone.localdate())
+
+
 class ProficiencySurvey(IdentifiedModel):
     """A PT/EQA survey shipment from an approved provider."""
 
@@ -173,6 +182,8 @@ class ProficiencySurvey(IdentifiedModel):
         help_text="Attests no inter-laboratory communication occurred — CLIA §493.801(b)(4)",
     )
     notes = models.TextField(null=True, blank=True)
+
+    objects = ProficiencySurveyQuerySet.as_manager()
 
     class Meta:
         db_table = "proficiency_surveys"
@@ -298,6 +309,18 @@ class MethodValidation(IdentifiedModel):
 # ── CAP / ISO 15189 §8.7: nonconformance and corrective action ───────────────
 
 
+class CorrectiveActionQuerySet(models.QuerySet):
+    def open(self):
+        return self.exclude(status=CorrectiveAction.Status.CLOSED)
+
+    def overdue(self):
+        """Open nonconformances past their due date.
+
+        Mirrors ``CorrectiveAction.is_overdue`` for a single instance.
+        """
+        return self.open().filter(due_date__lt=timezone.localdate())
+
+
 class CorrectiveAction(IdentifiedModel):
     """CAPA record for a nonconformity, incident or complaint."""
 
@@ -360,6 +383,8 @@ class CorrectiveAction(IdentifiedModel):
 
     linked_entity_type = models.CharField(max_length=64, null=True, blank=True)
     linked_entity_id = models.CharField(max_length=64, null=True, blank=True)
+
+    objects = CorrectiveActionQuerySet.as_manager()
 
     class Meta:
         db_table = "corrective_actions"
@@ -663,6 +688,28 @@ class AmendedReport(IdentifiedModel):
 # ── ISO 15189 §8.5: risk management, and Part 11 §11.10(a): validation ───────
 
 
+class RiskAssessmentQuerySet(models.QuerySet):
+    def open(self):
+        return self.exclude(status=RiskAssessment.Status.CLOSED)
+
+    def with_score(self):
+        """Annotate the effective score: residual where present, else inherent."""
+        from django.db.models import F, IntegerField
+        from django.db.models.functions import Coalesce
+
+        return self.annotate(
+            effective_score=Coalesce(
+                F("residual_likelihood") * F("residual_severity"),
+                F("likelihood") * F("severity"),
+                output_field=IntegerField(),
+            )
+        )
+
+    def high_rated(self):
+        """Risks scoring 15 or above. Mirrors ``RiskAssessment.rating``."""
+        return self.open().with_score().filter(effective_score__gte=15)
+
+
 class RiskAssessment(IdentifiedModel):
     """Documented assessment of a risk to examination quality or patient safety."""
 
@@ -689,6 +736,8 @@ class RiskAssessment(IdentifiedModel):
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.IDENTIFIED)
     reviewed_on = models.DateField(null=True, blank=True)
     next_review = models.DateField(null=True, blank=True)
+
+    objects = RiskAssessmentQuerySet.as_manager()
 
     class Meta:
         db_table = "risk_assessments"

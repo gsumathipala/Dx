@@ -74,6 +74,15 @@ class DeltaCheckFlag(IdentifiedModel):
         return self.acknowledged_at is not None
 
 
+class CriticalValueNotificationQuerySet(models.QuerySet):
+    def pending(self):
+        return self.filter(status="Pending")
+
+    def overdue(self):
+        """Pending notifications past their escalation deadline."""
+        return self.pending().filter(escalation_due_at__lt=timezone.now())
+
+
 class CriticalValueNotification(IdentifiedModel):
     """A life-threatening result requiring documented clinician notification.
 
@@ -109,6 +118,8 @@ class CriticalValueNotification(IdentifiedModel):
     escalation_due_at = models.DateTimeField(
         null=True, blank=True, help_text="Unacknowledged notifications escalate after this time"
     )
+
+    objects = CriticalValueNotificationQuerySet.as_manager()
 
     class Meta:
         db_table = "critical_value_notifications"
@@ -342,7 +353,13 @@ class NotifiableCondition(IdentifiedModel, ActivatableModel):
         "laboratory.TestDefinition", blank=True, related_name="notifiable_conditions"
     )
     reporting_body = models.CharField(max_length=255)
-    timeframe = models.CharField(max_length=32, default="24h")
+    timeframe = models.CharField(max_length=32, default="24h", help_text="Label shown to users, e.g. 24h or 7d")
+    timeframe_hours = models.PositiveIntegerField(
+        default=24,
+        help_text="The statutory window in hours. Kept alongside the label so "
+                  "overdue notifications can be found in SQL instead of by "
+                  "parsing the label on every row.",
+    )
     created_at = models.DateTimeField(default=timezone.now)
 
     class Meta:
@@ -351,6 +368,43 @@ class NotifiableCondition(IdentifiedModel, ActivatableModel):
 
     def __str__(self) -> str:
         return self.name
+
+    @staticmethod
+    def parse_timeframe(label: str) -> int:
+        """Convert a label such as '24h' or '7d' into hours."""
+        raw = (label or "24h").strip().lower()
+        try:
+            value = int(raw.rstrip("hd"))
+        except ValueError:
+            return 24
+        return value * 24 if raw.endswith("d") else value
+
+    def save(self, *args, **kwargs):
+        self.timeframe_hours = self.parse_timeframe(self.timeframe)
+        super().save(*args, **kwargs)
+
+
+class EpidemiologyNotificationQuerySet(models.QuerySet):
+    def open(self):
+        return self.exclude(status__in=[
+            EpidemiologyNotification.Status.SUBMITTED,
+            EpidemiologyNotification.Status.CLOSED,
+        ])
+
+    def overdue(self):
+        """Notifications past their statutory reporting window.
+
+        Must agree with ``EpidemiologyNotification.is_overdue``, which answers
+        the same question for a single instance.
+        """
+        from django.db.models import DateTimeField, ExpressionWrapper, F
+        from datetime import timedelta
+
+        deadline = ExpressionWrapper(
+            F("detected_at") + timedelta(hours=1) * F("condition__timeframe_hours"),
+            output_field=DateTimeField(),
+        )
+        return self.open().annotate(_deadline=deadline).filter(_deadline__lt=timezone.now())
 
 
 class EpidemiologyNotification(IdentifiedModel):
@@ -380,6 +434,8 @@ class EpidemiologyNotification(IdentifiedModel):
     )
     notes = models.TextField(null=True, blank=True)
 
+    objects = EpidemiologyNotificationQuerySet.as_manager()
+
     class Meta:
         db_table = "epidemiology_notifications"
         ordering = ["-detected_at"]
@@ -392,12 +448,12 @@ class EpidemiologyNotification(IdentifiedModel):
 
     @property
     def is_overdue(self) -> bool:
-        """Whether the statutory reporting window has elapsed."""
+        """Whether the statutory reporting window has elapsed.
+
+        Mirrors ``EpidemiologyNotificationQuerySet.overdue``; change both
+        together.
+        """
         if self.status in {self.Status.SUBMITTED, self.Status.CLOSED}:
             return False
-        raw = (self.condition.timeframe or "24h").strip().lower()
-        try:
-            hours = int(raw.rstrip("hd")) * (24 if raw.endswith("d") else 1)
-        except ValueError:
-            hours = 24
+        hours = self.condition.timeframe_hours or 24
         return (timezone.now() - self.detected_at).total_seconds() / 3600 > hours

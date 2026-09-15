@@ -25,14 +25,6 @@ class IdentifiedModel(models.Model):
         abstract = True
 
 
-class TimeStampedModel(models.Model):
-    """Adds creation/modification bookkeeping."""
-
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        abstract = True
 
 
 class ActiveQuerySet(models.QuerySet):

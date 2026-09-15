@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% block page_title %}Settings{% endblock %}
+{% block page_subtitle %}<div class="subtitle">{{ total }} configuration screen{{ total|pluralize }}</div>{% endblock %}
+
+{% block content %}
+<form method="get" class="filters">
+    <div class="field" style="flex:1">
+        <label for="q">Find a setting</label>
+        <input type="search" id="q" name="q" value="{{ query }}" autofocus
+               placeholder="delta, calibration, retention, LOINC…">
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-primary" type="submit">Find</button>
+        {% if query %}<a class="btn" href="{% url 'operations:settings_index' %}">Clear</a>{% endif %}
+    </div>
+</form>
+
+{% for group, items in grouped.items %}
+<div class="card">
+    <div class="card-header"><h3>{{ group }}</h3></div>
+    <div class="card-body flush">
+        <table class="data">
+            <tbody>
+            {% for item in items %}
+                <tr>
+                    <td style="width:280px"><a href="{% url item.url_name %}"><strong>{{ item.label }}</strong></a></td>
+                    <td class="muted">{{ item.description }}</td>
+                </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% empty %}
+<div class="card"><div class="card-body"><div class="empty">
+    Nothing matched "{{ query }}".
+</div></div></div>
+{% endfor %}
+{% endblock %}

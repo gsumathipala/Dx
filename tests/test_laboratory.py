@@ -214,3 +214,91 @@ class ReagentConsumptionTests(TestCase):
         self.assertIsNone(consume_reagent(self.test, "tech"))
         self.item.refresh_from_db()
         self.assertEqual(self.item.quantity, 0)
+
+
+class BatchVerificationTests(TestCase):
+    """One signing may cover several orders; each is still gated individually."""
+
+    def setUp(self):
+        self.password = "Str0ng-Pass!23"
+        self.tech = make_user("batch-tech", password=self.password)
+        self.senior = make_user("batch-senior", role="manager", password=self.password)
+        self.test = make_test(code="BATCH")
+        grant_competency(self.tech, test=self.test)
+        grant_competency(self.senior, test=self.test)
+        passing_qc(self.test)
+        self.patient = make_patient(mrn="MRN-BATCH")
+
+        self.orders = []
+        for _ in range(3):
+            order = create_order(patient=self.patient, tests=[self.test], ordered_by="Dr A")
+            save_results(order=order, values={self.test.id: "5.0"}, user=self.tech)
+            save_results(order=order, values={self.test.id: "5.0"}, user=self.tech,
+                         action=AuditAction.TECHNICAL_VALIDATE, password=self.password)
+            self.orders.append(order)
+
+    def test_batch_verifies_every_order(self):
+        from apps.laboratory.services import verify_batch
+
+        verified, refusals = verify_batch(
+            orders=self.orders, user=self.senior, password=self.password
+        )
+        self.assertEqual(len(verified), 3)
+        self.assertEqual(refusals, [])
+        for order in self.orders:
+            order.refresh_from_db()
+            self.assertEqual(order.status, OrderStatus.COMPLETED)
+
+    def test_each_order_gets_its_own_signature(self):
+        from apps.compliance.models import ElectronicSignature
+        from apps.laboratory.services import verify_batch
+
+        verify_batch(orders=self.orders, user=self.senior, password=self.password)
+        for order in self.orders:
+            self.assertTrue(
+                ElectronicSignature.objects.filter(
+                    entity_type="laboratory.Order", entity_id=str(order.pk),
+                    meaning=ElectronicSignature.Meaning.CLINICAL_APPROVAL,
+                ).exists(),
+                "every order in a batch must carry its own signature manifest",
+            )
+
+    def test_wrong_password_verifies_nothing(self):
+        from apps.laboratory.services import verify_batch
+
+        verified, refusals = verify_batch(
+            orders=self.orders, user=self.senior, password="wrong"
+        )
+        self.assertEqual(verified, [])
+        self.assertEqual(len(refusals), 3)
+        for order in self.orders:
+            order.refresh_from_db()
+            self.assertNotEqual(order.status, OrderStatus.COMPLETED)
+
+    def test_one_refusal_does_not_block_the_rest(self):
+        """A self-verification block on one order must not fail the batch."""
+        from apps.laboratory.services import verify_batch
+
+        blocked = create_order(patient=self.patient, tests=[self.test], ordered_by="Dr A")
+        save_results(order=blocked, values={self.test.id: "5.0"}, user=self.senior)
+        save_results(order=blocked, values={self.test.id: "5.0"}, user=self.tech,
+                     action=AuditAction.TECHNICAL_VALIDATE, password=self.password)
+
+        verified, refusals = verify_batch(
+            orders=self.orders + [blocked], user=self.senior, password=self.password
+        )
+        self.assertEqual(len(verified), 3)
+        self.assertEqual(len(refusals), 1)
+        self.assertIn("cannot also verify", refusals[0][1])
+        blocked.refresh_from_db()
+        self.assertNotEqual(blocked.status, OrderStatus.COMPLETED)
+
+    def test_order_with_no_results_is_refused_not_silently_skipped(self):
+        from apps.laboratory.services import verify_batch
+
+        empty = create_order(patient=self.patient, tests=[self.test], ordered_by="Dr A")
+        verified, refusals = verify_batch(
+            orders=[empty], user=self.senior, password=self.password
+        )
+        self.assertEqual(verified, [])
+        self.assertIn("No results", refusals[0][1])

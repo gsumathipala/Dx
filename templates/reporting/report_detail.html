@@ -5,6 +5,7 @@
     <button class="btn btn-primary" onclick="window.print()">Print</button>
     <a class="btn" href="{% url 'interop:fhir_report' order.pk %}?bundle=1">FHIR</a>
     <a class="btn" href="{% url 'interop:hl7_oru' order.pk %}">HL7</a>
+    <a class="btn btn-danger" href="{% url 'reporting:amend' order.pk %}">Amend</a>
 {% endblock %}
 
 {% block content %}

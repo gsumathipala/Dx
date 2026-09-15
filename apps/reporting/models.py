@@ -8,6 +8,15 @@ from django.utils import timezone
 from apps.common.models import ActivatableModel, IdentifiedModel
 
 
+class ControlledDocumentQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(status=ControlledDocument.Status.ACTIVE)
+
+    def review_overdue(self):
+        """Active documents past their scheduled review — ISO 15189 §8.3."""
+        return self.active().filter(review_due__lt=timezone.localdate())
+
+
 class ControlledDocument(IdentifiedModel):
     """A version-controlled SOP, policy or manual (ISO 15189 §8.3).
 
@@ -55,6 +64,8 @@ class ControlledDocument(IdentifiedModel):
         "accounts.Department", null=True, blank=True, on_delete=models.SET_NULL,
         related_name="documents",
     )
+
+    objects = ControlledDocumentQuerySet.as_manager()
 
     class Meta:
         db_table = "documents"

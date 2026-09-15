@@ -11,14 +11,6 @@ from apps.compliance.models import (
 )
 
 
-class SignatureForm(forms.Form):
-    """Password re-entry required to apply an electronic signature."""
-
-    password = forms.CharField(
-        widget=forms.PasswordInput, label="Your password",
-        help_text="Re-entered at signing — 21 CFR Part 11 §11.200(a)(1).",
-    )
-    comment = forms.CharField(widget=forms.Textarea(attrs={"rows": 2}), required=False)
 
 
 class PasswordChangeForm(forms.Form):
@@ -219,15 +211,51 @@ class RetentionScheduleForm(forms.ModelForm):
 
 
 class AmendedReportForm(forms.ModelForm):
+    """Issue a corrected report against an already-released order.
+
+    CAP requires the original value to be retained, the report to be marked as
+    amended, the change to be signed, and the requesting clinician to be told.
+    """
+
     password = forms.CharField(
         widget=forms.PasswordInput, label="Your password",
         help_text="An amended report must be electronically signed.",
     )
+    notify_clinician = forms.BooleanField(
+        required=False, initial=True,
+        label="The requesting clinician has been told about this correction",
+    )
+    notification_method = forms.ChoiceField(
+        required=False,
+        choices=[("", "—"), ("phone", "Telephone"), ("in-person", "In person"),
+                 ("fax", "Fax"), ("secure-message", "Secure message")],
+    )
 
     class Meta:
         model = AmendedReport
-        fields = ["result", "reason", "original_value", "corrected_value", "narrative"]
+        fields = ["result", "reason", "corrected_value", "narrative"]
         widgets = {"narrative": forms.Textarea(attrs={"rows": 3})}
+
+    def __init__(self, *args, order=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.order = order
+        if order is not None:
+            # Only the analytes on this order may be amended.
+            self.fields["result"].queryset = order.results.exclude(test_key="REPORT")
+
+    def clean(self):
+        cleaned = super().clean()
+        result = cleaned.get("result")
+        corrected = cleaned.get("corrected_value")
+        if result is not None and corrected is not None and str(corrected) == str(result.value):
+            raise forms.ValidationError(
+                "The corrected value is the same as the current one — nothing to amend."
+            )
+        if cleaned.get("notify_clinician") and not cleaned.get("notification_method"):
+            raise forms.ValidationError(
+                "Record how the clinician was notified of the correction."
+            )
+        return cleaned
 
 
 class PatientConsentForm(forms.ModelForm):

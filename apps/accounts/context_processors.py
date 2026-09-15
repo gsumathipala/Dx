@@ -1,4 +1,10 @@
-"""Role-aware navigation, ported from the React Sidebar component."""
+"""Role-aware navigation.
+
+The sidebar carries only what someone uses during a shift. Configuration — 25
+screens that are visited occasionally and never hunted for by scanning a list —
+lives behind a single Settings link that opens a searchable index. An admin's
+sidebar went from 57 links to 10 as a result.
+"""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -12,96 +18,223 @@ class NavItem:
     visible: bool = True
 
 
-def _sections(user):
-    """Build the sidebar for this user's role.
+@dataclass(frozen=True)
+class SettingsItem:
+    """A configuration screen, listed on the settings index rather than the sidebar."""
 
-    Mirrors the RBAC of the original Sidebar: lab staff see clinical screens,
-    managers see configuration, admins see everything.
+    label: str
+    url_name: str
+    group: str
+    description: str
+    visible: bool = True
+    #: Extra words people might search for that are not in the label.
+    keywords: str = ""
+
+    @property
+    def haystack(self) -> str:
+        return f"{self.label} {self.group} {self.description} {self.keywords}".lower()
+
+
+def _workspace(user):
+    """What a user needs during a shift, in the order they need it."""
+    is_lab = user.is_lab_staff
+    is_clerk = user.role == "clerk"
+    is_collector = user.role in {"clerk", "phlebotomist"}
+    department = user.department_name
+
+    return [
+        NavItem("Dashboard", "operations:dashboard", "layout-dashboard"),
+        NavItem("Search", "operations:search", "search"),
+        NavItem("Worklist", "laboratory:results", "microscope", is_lab),
+        NavItem("Accessioning", "laboratory:accessioning", "test-tube", is_lab or is_clerk),
+        NavItem("Receiving", "laboratory:receiving", "flask-conical", is_lab or is_clerk),
+        NavItem("Phlebotomy", "laboratory:phlebotomy_list", "syringe", is_collector or is_lab),
+        NavItem("Critical Values", "clinical:critical_values", "bell", is_lab),
+        NavItem("Quality Control", "quality:qc", "activity", is_lab),
+        NavItem("Reports", "reporting:reports", "file-text"),
+        NavItem("Messages", "operations:messages", "mail"),
+        NavItem("Histopathology", "specialty:histology", "microscope",
+                user.is_admin or department == "Histopathology"),
+        NavItem("Microbiology", "specialty:microbiology", "microscope",
+                user.is_admin or department == "Microbiology"),
+    ]
+
+
+def _oversight(user):
+    """Screens a manager checks daily, kept out of the working set."""
+    return [
+        NavItem("Compliance", "compliance:dashboard", "clipboard-check", user.is_manager),
+        NavItem("Audit Trail", "audit:trail", "shield-check"),
+        NavItem("Nonconformances", "compliance:capa_list", "alert-triangle", user.is_lab_staff),
+        NavItem("Turnaround", "operations:tat", "clock", user.is_lab_staff),
+        NavItem("Settings", "operations:settings_index", "settings", user.is_manager),
+    ]
+
+
+def settings_index(user):
+    """Every configuration screen, grouped and searchable.
+
+    Nobody scans a 25-item list for "Delta Check Rules" — they type "delta".
     """
     is_admin = user.is_admin
     is_manager = user.is_manager
     is_lab = user.is_lab_staff
-    is_clerk = user.role == "clerk"
-    department = user.department_name
 
-    return [
-        ("Workspace", [
-            NavItem("Dashboard", "operations:dashboard", "layout-dashboard"),
-            NavItem("Messages", "operations:messages", "mail"),
-            NavItem("Critical Values", "clinical:critical_values", "bell", is_lab),
-            NavItem("Reports", "reporting:reports", "file-text"),
-            NavItem("Cumulative Report", "reporting:cumulative", "trending-up", is_lab),
-            NavItem("Email Delivery", "reporting:email_delivery", "send", is_manager),
-        ]),
-        ("Samples & Tracking", [
-            NavItem("Accessioning", "laboratory:accessioning", "test-tube", is_lab or is_clerk),
-            NavItem("Specimen Receiving", "laboratory:receiving", "flask-conical", is_lab or is_clerk),
-            NavItem("Phlebotomy", "laboratory:phlebotomy", "syringe", is_lab or is_clerk),
-            NavItem("Tracking (CoC)", "operations:tracking", "map-pin"),
-            NavItem("Storage", "operations:storage", "archive", is_lab),
-            NavItem("Inventory", "inventory:list", "box", is_lab),
-        ]),
-        ("Clinical Analysis", [
-            NavItem("Results Entry", "laboratory:results", "microscope", is_lab),
-            NavItem("Workflow Queues", "operations:queues", "layers", is_lab),
-            NavItem("Worksheets", "operations:worksheets", "clipboard-list", is_lab),
-            NavItem("QC & Calibration", "quality:qc", "activity", is_lab),
-            NavItem("Epidemiology", "clinical:epidemiology", "globe", is_manager),
-            NavItem("Histopathology", "specialty:histology", "microscope",
-                    is_admin or department == "Histopathology"),
-            NavItem("Microbiology", "specialty:microbiology", "microscope",
-                    is_admin or department == "Microbiology"),
-        ]),
-        ("Quality & Compliance", [
-            NavItem("Audit Trail", "audit:trail", "shield-check"),
-            NavItem("Chain Integrity", "audit:integrity", "fingerprint", is_manager),
-            NavItem("CAPA / Nonconformance", "compliance:capa_list", "alert-triangle", is_lab),
-            NavItem("Proficiency Testing", "compliance:pt_list", "award", is_lab),
-            NavItem("Method Validation", "compliance:validation_list", "check-circle", is_manager),
-            NavItem("Risk Register", "compliance:risk_list", "alert-octagon", is_manager),
-            NavItem("Change Control", "compliance:change_list", "git-branch", is_manager),
-            NavItem("Compliance Dashboard", "compliance:dashboard", "clipboard-check", is_manager),
-        ]),
-        ("Management", [
-            NavItem("Billing", "billing:list", "banknote", is_lab),
-            NavItem("Equipment", "quality:equipment", "thermometer"),
-            NavItem("Documents", "reporting:documents", "file"),
-            NavItem("Training", "compliance:training_list", "graduation-cap"),
-            NavItem("Feedback", "operations:feedback", "message-square"),
-        ]),
+    items = [
+        # ── Test catalogue ───────────────────────────────────────────────────
+        SettingsItem("Test definitions", "laboratory:test_list", "Test catalogue",
+                     "Analytes, units, reference intervals and critical limits.",
+                     is_manager, "assay panel loinc range"),
+        SettingsItem("Calculated tests", "clinical:calculated_list", "Test catalogue",
+                     "Derived analytes such as eGFR, LDL and anion gap.", is_manager,
+                     "egfr ldl formula derived"),
+        SettingsItem("Demographic reference intervals", "clinical:range_list", "Test catalogue",
+                     "Age, sex and pregnancy specific intervals.", is_manager,
+                     "paediatric adult range normal"),
+        SettingsItem("LOINC catalogue", "interop:loinc_list", "Test catalogue",
+                     "Standard codes for external exchange.", is_manager, "coding standard"),
+
+        # ── Clinical rules ───────────────────────────────────────────────────
+        SettingsItem("Delta check rules", "clinical:delta_rule_list", "Clinical rules",
+                     "Flag results that change sharply from the patient's last.",
+                     is_manager, "change trend previous"),
+        SettingsItem("Reflex testing rules", "clinical:reflex_rule_list", "Clinical rules",
+                     "Add a follow-on test automatically when a result triggers it.",
+                     is_manager, "cascade add-on automatic"),
+        SettingsItem("Notifiable conditions", "clinical:notifiable_list", "Clinical rules",
+                     "Conditions reported to public health, and their deadlines.",
+                     is_admin, "epidemiology public health surveillance"),
+        SettingsItem("Delta check flags", "clinical:delta_flag_list", "Clinical rules",
+                     "Results the delta rules have flagged.", is_lab, "flagged"),
+
+        # ── Quality ──────────────────────────────────────────────────────────
+        SettingsItem("QC materials", "quality:material_list", "Quality",
+                     "Control lots and their expiry.", is_lab, "control lot"),
+        SettingsItem("QC target values", "quality:definition_list", "Quality",
+                     "Mean and SD per analyte per control lot.", is_manager,
+                     "mean sd westgard"),
+        SettingsItem("Equipment", "quality:equipment_list", "Quality",
+                     "Instruments, service and calibration dates.", is_manager,
+                     "instrument analyser calibration maintenance"),
+        SettingsItem("Equipment log", "quality:equipment_log_list", "Quality",
+                     "Maintenance, calibration and repair history.", is_lab, "service repair"),
+        SettingsItem("Rejection criteria", "quality:criterion_list", "Quality",
+                     "Reasons a specimen may be rejected at reception.", is_manager,
+                     "haemolysed clotted unlabelled"),
+
+        # ── Compliance ───────────────────────────────────────────────────────
+        SettingsItem("Proficiency testing", "compliance:pt_list", "Compliance",
+                     "External quality assessment surveys and their deadlines.",
+                     is_lab, "eqa survey cap neqas"),
+        SettingsItem("Proficiency results", "compliance:pt_result_list", "Compliance",
+                     "Graded analyte results from EQA surveys.", is_lab, "eqa grade"),
+        SettingsItem("Method validation", "compliance:validation_list", "Compliance",
+                     "Accuracy, precision, reportable range and reference interval.",
+                     is_manager, "verification clia 493.1253"),
+        SettingsItem("Risk register", "compliance:risk_list", "Compliance",
+                     "Assessed risks and their mitigations.", is_manager, "iso 15189 hazard"),
+        SettingsItem("Change control", "compliance:change_list", "Compliance",
+                     "Changes affecting result production, and their validation.",
+                     is_manager, "part 11 software"),
+        SettingsItem("Training records", "compliance:training_list", "Compliance",
+                     "Training delivered and assessed.", True, "competency staff"),
+        SettingsItem("User competency", "accounts:competency_list", "Compliance",
+                     "Who may report which tests, and until when.", is_manager,
+                     "clia 493.1451 assessment"),
+        SettingsItem("Record retention", "compliance:retention_list", "Compliance",
+                     "How long each class of record is kept.", is_manager,
+                     "clia 493.1105 destruction"),
+        SettingsItem("Sample retention", "laboratory:retention_list", "Compliance",
+                     "How long each specimen type is kept before disposal.", is_manager,
+                     "specimen storage disposal"),
+
+        # ── Access and privacy ───────────────────────────────────────────────
+        SettingsItem("Users", "accounts:user_list", "Access and privacy",
+                     "Named accounts and their roles.", is_admin, "staff login account"),
+        SettingsItem("Departments", "accounts:department_list", "Access and privacy",
+                     "Disciplines the laboratory is organised into.", is_admin, "discipline"),
+        SettingsItem("Authorisation queues", "laboratory:queue_list", "Access and privacy",
+                     "How work awaiting authorisation is segregated.", is_manager, "workflow"),
+        SettingsItem("PHI access log", "compliance:phi_access_list", "Access and privacy",
+                     "Who viewed identifiable patient information.", is_admin,
+                     "hipaa privacy audit"),
+        SettingsItem("Disclosure accounting", "compliance:disclosure_list", "Access and privacy",
+                     "Disclosures of patient information to third parties.", is_admin,
+                     "hipaa 164.528"),
+        SettingsItem("Chain integrity", "audit:integrity", "Access and privacy",
+                     "Verify the audit trail has not been altered.", is_manager,
+                     "hash tamper verification"),
+
+        # ── Operations ───────────────────────────────────────────────────────
+        SettingsItem("Workstations", "operations:workstation_list", "Operations",
+                     "Benches and the instruments attached to them.", is_manager, "bench"),
+        SettingsItem("Routing rules", "operations:routing_list", "Operations",
+                     "Which bench a test is sent to.", is_manager, "assignment"),
+        SettingsItem("Turnaround thresholds", "operations:tat_threshold_list", "Operations",
+                     "Target, warning and breach times.", is_manager, "tat sla target"),
+        SettingsItem("Worksheets", "operations:worksheet_list", "Operations",
+                     "Batches of work grouped for a run.", is_lab, "batch run"),
+        SettingsItem("Storage locations", "operations:storage_location_list", "Operations",
+                     "Freezers, racks and boxes.", is_lab, "freezer rack box"),
+        SettingsItem("Inventory", "inventory:item_list", "Operations",
+                     "Reagents and consumables.", is_lab, "reagent stock consumable"),
+        SettingsItem("Stock movements", "inventory:transaction_list", "Operations",
+                     "Every restock and consumption.", is_lab, "reagent usage"),
+        SettingsItem("Manufacturing recipes", "inventory:recipe_list", "Operations",
+                     "Formulations for in-house media and reagents.", is_manager, "media"),
+        SettingsItem("Production runs", "inventory:production_list", "Operations",
+                     "Batches made in-house and their release.", is_lab, "batch media"),
+        SettingsItem("Antibiotics", "specialty:antibiotic_list", "Operations",
+                     "Agents reported on susceptibility panels.", is_manager, "micro ast"),
+
+        # ── Reporting ────────────────────────────────────────────────────────
+        SettingsItem("Controlled documents", "reporting:document_list", "Reporting",
+                     "SOPs and policies under version control.", True, "sop policy manual"),
+        SettingsItem("Requester registry", "reporting:requester_list", "Reporting",
+                     "Clinicians, wards and clinics that send work.", is_manager,
+                     "gp ward clinic referrer"),
+        SettingsItem("Distribution rules", "reporting:distribution_list", "Reporting",
+                     "How each requester's reports are delivered.", is_manager,
+                     "email fax print delivery"),
+        SettingsItem("Report delivery queue", "reporting:email_delivery", "Reporting",
+                     "Outbound reports and their delivery status.", is_manager, "email outbox"),
+        SettingsItem("Cumulative report", "reporting:cumulative", "Reporting",
+                     "All results for one patient, trended.", is_lab, "trend history"),
+        SettingsItem("Billing catalogue", "billing:item_list", "Reporting",
+                     "Chargeable items and their prices.", is_manager, "price cpt charge"),
+        SettingsItem("Invoices", "billing:invoice_list", "Reporting",
+                     "Raised invoices and their balances.", is_lab, "charge payment"),
+
+        # ── System ───────────────────────────────────────────────────────────
+        SettingsItem("Instrument interfaces", "interop:interface_list", "System",
+                     "Analyser connections and their code mappings.", is_manager,
+                     "astm hl7 analyser middleware"),
+        SettingsItem("Instrument messages", "interop:message_list", "System",
+                     "Raw traffic received from analysers.", is_manager, "astm hl7 log"),
+        SettingsItem("System alerts", "operations:alert_list", "System",
+                     "Banners shown across the application.", is_manager, "banner notice"),
+        SettingsItem("Configuration", "operations:setting_list", "System",
+                     "Key/value settings.", is_manager, "config"),
+        SettingsItem("Backup and maintenance", "operations:backup", "System",
+                     "Operational procedures and audit health.", is_admin, "restore pg_dump"),
+        SettingsItem("Patient data administration", "patients:patient_admin_list", "System",
+                     "Demographic corrections.", is_manager, "merge correct mrn"),
+        SettingsItem("KPI dashboard", "operations:kpi", "System",
+                     "Volume, turnaround and quality indicators.", is_manager,
+                     "metrics statistics"),
+        SettingsItem("Feedback", "operations:feedback", "System",
+                     "Issues and suggestions raised by staff.", True, "bug suggestion"),
+        SettingsItem("Epidemiology", "clinical:epidemiology", "System",
+                     "Notifiable conditions detected and reported.", is_manager,
+                     "public health surveillance"),
+        SettingsItem("Tracking", "operations:tracking", "System",
+                     "Specimen chain of custody.", True, "custody coc"),
+        SettingsItem("Storage", "operations:storage", "System",
+                     "Place a specimen into storage.", is_lab, "freezer"),
+        SettingsItem("Queues", "operations:queues", "System",
+                     "Work waiting in each authorisation queue.", is_lab, "workflow"),
     ]
-
-
-def _admin_items(user):
-    is_admin = user.is_admin
-    is_manager = user.is_manager
-    return [
-        NavItem("User Management", "accounts:user_list", "users", is_admin),
-        NavItem("Patient Data", "patients:admin_list", "users", is_manager),
-        NavItem("Test Definitions", "laboratory:test_list", "test-tube", is_manager),
-        NavItem("Delta Check Rules", "clinical:delta_rules", "git-branch", is_manager),
-        NavItem("Reflex Testing Rules", "clinical:reflex_rules", "repeat", is_manager),
-        NavItem("Demographic Ref Ranges", "clinical:demographic_ranges", "users", is_manager),
-        NavItem("Calculated Tests", "clinical:calculated_tests", "calculator", is_manager),
-        NavItem("TAT Thresholds", "operations:tat_thresholds", "calendar", is_manager),
-        NavItem("User Competency", "accounts:competency_list", "user-check", is_manager),
-        NavItem("Distribution Rules", "reporting:distribution_rules", "send", is_manager),
-        NavItem("Requester Registry", "reporting:requester_list", "building", is_manager),
-        NavItem("Sample Retention", "laboratory:retention_list", "trash-2", is_manager),
-        NavItem("Retention Schedule", "compliance:retention_schedule", "calendar-clock", is_manager),
-        NavItem("LOINC Catalogue", "interop:loinc_list", "book-open", is_manager),
-        NavItem("Instrument Interfaces", "interop:interface_list", "plug", is_manager),
-        NavItem("KPI Dashboard", "operations:kpi", "bar-chart", is_manager),
-        NavItem("Rejection Criteria", "quality:criteria_list", "ban", is_manager),
-        NavItem("Auth Queues", "laboratory:queue_list", "shield-check", is_manager),
-        NavItem("Departments", "accounts:department_list", "layers", is_admin),
-        NavItem("Notifiable Conditions", "clinical:notifiable_list", "alert-circle", is_admin),
-        NavItem("Alert Log", "operations:alert_list", "alert-circle", is_manager),
-        NavItem("PHI Access Log", "compliance:phi_access_log", "eye", is_admin),
-        NavItem("Disclosure Accounting", "compliance:disclosure_list", "share-2", is_admin),
-        NavItem("Backup & Maintenance", "operations:backup", "database", is_admin),
-        NavItem("Configuration", "operations:settings", "settings", is_manager),
-    ]
+    return [item for item in items if item.visible]
 
 
 def navigation(request):
@@ -109,11 +242,7 @@ def navigation(request):
     if not (user and user.is_authenticated):
         return {}
 
-    sections = [
-        (title, [item for item in items if item.visible])
-        for title, items in _sections(user)
-    ]
     return {
-        "nav_sections": [(title, items) for title, items in sections if items],
-        "nav_admin_items": [item for item in _admin_items(user) if item.visible],
+        "nav_workspace": [item for item in _workspace(user) if item.visible],
+        "nav_oversight": [item for item in _oversight(user) if item.visible],
     }

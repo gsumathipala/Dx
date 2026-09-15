@@ -10,13 +10,11 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, render
-from django.urls import reverse_lazy
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
 from apps.common.constants import MANAGEMENT_ROLES
-from apps.common.views import DxCreateView, DxListView, DxUpdateView
 from apps.interop.models import InstrumentInterface, InstrumentMessage, LoincCode
 from apps.interop.services import diagnostic_report, oru_r01, report_bundle
 
@@ -177,81 +175,3 @@ def hl7_oru(request, pk):
 
 
 # ── Catalogue and interface administration ───────────────────────────────────
-
-
-class LoincListView(DxListView):
-    model = LoincCode
-    required_roles = MANAGERS
-    page_title = "LOINC catalogue"
-    search_fields = ["loinc_code", "long_name", "short_name", "component"]
-    columns = [
-        ("LOINC", "loinc_code", "mono"), ("Short name", "short_name", ""),
-        ("Component", "component", ""), ("Property", "property", ""),
-        ("System", "system", ""), ("Scale", "scale", ""), ("Status", "status", ""),
-    ]
-    create_url_name = "interop:loinc_create"
-    update_url_name = "interop:loinc_update"
-
-
-class LoincCreateView(DxCreateView):
-    model = LoincCode
-    form_class = LoincForm
-    required_roles = MANAGERS
-    page_title = "LOINC code"
-    success_url = reverse_lazy("interop:loinc_list")
-
-
-class LoincUpdateView(DxUpdateView):
-    model = LoincCode
-    form_class = LoincForm
-    required_roles = MANAGERS
-    page_title = "LOINC code"
-    success_url = reverse_lazy("interop:loinc_list")
-
-
-class InterfaceListView(DxListView):
-    model = InstrumentInterface
-    required_roles = MANAGERS
-    template_name = "interop/interfaces.html"
-    page_title = "Instrument interfaces"
-    search_fields = ["name", "host"]
-    columns = [
-        ("Name", "name", ""), ("Protocol", "get_protocol_display", ""),
-        ("Direction", "get_direction_display", ""), ("Host", "host", "mono"),
-        ("Port", "port", ""), ("Last message", "last_message_at", "nowrap"),
-        ("Stale", "is_stale", ""), ("Enabled", "enabled", ""),
-    ]
-    create_url_name = "interop:interface_create"
-    update_url_name = "interop:interface_update"
-
-
-class InterfaceCreateView(DxCreateView):
-    model = InstrumentInterface
-    form_class = InterfaceForm
-    required_roles = MANAGERS
-    page_title = "instrument interface"
-    success_url = reverse_lazy("interop:interface_list")
-
-
-class InterfaceUpdateView(DxUpdateView):
-    model = InstrumentInterface
-    form_class = InterfaceForm
-    required_roles = MANAGERS
-    page_title = "instrument interface"
-    success_url = reverse_lazy("interop:interface_list")
-
-
-class MessageLogView(DxListView):
-    model = InstrumentMessage
-    required_roles = MANAGERS
-    page_title = "Instrument message log"
-    search_fields = ["accession_number", "error"]
-    filter_fields = {"status": "status"}
-    columns = [
-        ("Received", "received_at", "nowrap"), ("Interface", "interface.name", ""),
-        ("Accession", "accession_number", "mono"), ("Status", "status", ""),
-        ("Applied", "results_applied", ""), ("Error", "error", "muted"),
-    ]
-
-    def get_queryset(self):
-        return super().get_queryset().select_related("interface")

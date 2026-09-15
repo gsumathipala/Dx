@@ -177,48 +177,62 @@ def email_delivery(request):
 # ── Controlled documents ─────────────────────────────────────────────────────
 
 
-class DocumentListView(DxListView):
-    model = ControlledDocument
-    required_roles = None
-    template_name = "reporting/documents.html"
-    page_title = "Controlled documents"
-    page_subtitle = "SOPs, policies and manuals under version control — ISO 15189 §8.3"
-    search_fields = ["title", "document_number"]
-    filter_fields = {"category": "category", "status": "status"}
-    columns = [
-        ("Number", "document_number", "mono"), ("Title", "title", ""),
-        ("Category", "category", ""), ("Version", "version", ""),
-        ("Status", "status", ""), ("Effective", "effective_date", "nowrap"),
-        ("Review due", "review_due", "nowrap"), ("Overdue", "review_overdue", ""),
-    ]
-    create_url_name = "reporting:document_create"
-    update_url_name = "reporting:document_update"
+# ── Requesters and distribution ──────────────────────────────────────────────
 
 
-class DocumentCreateView(DxCreateView):
-    model = ControlledDocument
-    form_class = ControlledDocumentForm
-    required_roles = MANAGERS
-    page_title = "controlled document"
-    success_url = reverse_lazy("reporting:documents")
+@login_required
+def amend_report_view(request, pk):
+    """Issue a corrected report for an already-released order (CAP)."""
+    from apps.compliance.forms import AmendedReportForm
+    from apps.compliance.services import ControlViolation
+    from apps.laboratory.models import Order
+    from apps.laboratory.services import amend_report
 
-    def form_valid(self, form):
-        form.instance.uploaded_by = self.request.user.username
-        return super().form_valid(form)
+    if request.user.role not in LAB_STAFF:
+        messages.error(request, "Your role does not permit amending a report.")
+        return redirect("reporting:reports")
 
+    order = get_object_or_404(
+        Order.objects.select_related("patient").prefetch_related("results__test"), pk=pk
+    )
+    if not order.is_complete:
+        messages.error(
+            request,
+            "Only a released report can be amended. Correct the result in the "
+            "usual way before it is verified.",
+        )
+        return redirect("laboratory:result_entry", pk=order.pk)
 
-class DocumentUpdateView(DxUpdateView):
-    model = ControlledDocument
-    form_class = ControlledDocumentForm
-    required_roles = MANAGERS
-    page_title = "controlled document"
-    success_url = reverse_lazy("reporting:documents")
+    form = AmendedReportForm(request.POST or None, order=order)
+    if request.method == "POST" and form.is_valid():
+        try:
+            amendment = amend_report(
+                order=order,
+                result=form.cleaned_data["result"],
+                corrected_value=form.cleaned_data["corrected_value"],
+                reason=form.cleaned_data["reason"],
+                narrative=form.cleaned_data["narrative"],
+                user=request.user,
+                password=form.cleaned_data["password"],
+                request=request,
+                notified_method=form.cleaned_data.get("notification_method") or None,
+            )
+        except ControlViolation as violation:
+            messages.error(request, str(violation))
+        else:
+            messages.success(
+                request,
+                f"Amended report v{amendment.version} issued. "
+                f"Nonconformance {amendment.corrective_action.reference} was opened.",
+            )
+            return redirect("reporting:report_detail", pk=order.pk)
 
-    def form_valid(self, form):
-        if form.instance.status == ControlledDocument.Status.ACTIVE and not form.instance.approved_at:
-            form.instance.approved_by = self.request.user
-            form.instance.approved_at = timezone.now()
-        return super().form_valid(form)
+    return render(request, "reporting/amend.html", {
+        "order": order,
+        "form": form,
+        "results": order.results.exclude(test_key="REPORT").select_related("test"),
+        "amendments": order.amendments.all(),
+    })
 
 
 @login_required
@@ -235,66 +249,14 @@ def acknowledge_document(request, pk):
             request,
             "Acknowledgement recorded." if created else "You had already acknowledged this version.",
         )
-    return redirect("reporting:documents")
+    return redirect("reporting:document_list")
 
 
-# ── Requesters and distribution ──────────────────────────────────────────────
+def stamp_document_approval(view, form):
+    """Record who approved a document the moment it becomes active.
 
-
-class RequesterListView(DxListView):
-    model = Requester
-    required_roles = MANAGERS
-    page_title = "Requester registry"
-    search_fields = ["name", "contact_name", "email"]
-    columns = [
-        ("Name", "name", ""), ("Type", "type", ""), ("Contact", "contact_name", ""),
-        ("Email", "email", ""), ("Phone", "phone", ""),
-        ("Delivery", "delivery_preference", ""), ("Active", "active", ""),
-    ]
-    create_url_name = "reporting:requester_create"
-    update_url_name = "reporting:requester_update"
-
-
-class RequesterCreateView(DxCreateView):
-    model = Requester
-    form_class = RequesterForm
-    required_roles = MANAGERS
-    page_title = "requester"
-    success_url = reverse_lazy("reporting:requester_list")
-
-
-class RequesterUpdateView(DxUpdateView):
-    model = Requester
-    form_class = RequesterForm
-    required_roles = MANAGERS
-    page_title = "requester"
-    success_url = reverse_lazy("reporting:requester_list")
-
-
-class DistributionRuleListView(DxListView):
-    model = DistributionRule
-    required_roles = MANAGERS
-    page_title = "Distribution rules"
-    columns = [
-        ("Requester", "requester.name", ""), ("Test", "test.code", "mono"),
-        ("Method", "method", ""), ("Destination", "destination", ""),
-        ("Auto release", "auto_release", ""), ("Active", "active", ""),
-    ]
-    create_url_name = "reporting:distribution_rule_create"
-    update_url_name = "reporting:distribution_rule_update"
-
-
-class DistributionRuleCreateView(DxCreateView):
-    model = DistributionRule
-    form_class = DistributionRuleForm
-    required_roles = MANAGERS
-    page_title = "distribution rule"
-    success_url = reverse_lazy("reporting:distribution_rules")
-
-
-class DistributionRuleUpdateView(DxUpdateView):
-    model = DistributionRule
-    form_class = DistributionRuleForm
-    required_roles = MANAGERS
-    page_title = "distribution rule"
-    success_url = reverse_lazy("reporting:distribution_rules")
+    Passed to the ``documents`` CrudResource as its update hook.
+    """
+    if form.instance.status == ControlledDocument.Status.ACTIVE and not form.instance.approved_at:
+        form.instance.approved_by = view.request.user
+        form.instance.approved_at = timezone.now()

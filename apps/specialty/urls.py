@@ -1,25 +1,63 @@
 from django.urls import path
 
+from apps.common.views import CrudResource
 from apps.specialty import views
+from apps.specialty.models import (
+    Antibiotic, HistoBlock, HistoSlide, MicroCulture, SusceptibilityResult,
+)
 
 app_name = "specialty"
 
+blocks = CrudResource(
+    "block", HistoBlock, views.HistoBlockForm,
+    roles=views.LAB_STAFF, title="Histology blocks", singular="block",
+    columns=[("Block", "block_id", "mono"), ("Tissue", "tissue_type", ""),
+             ("Status", "status", ""), ("Grossed by", "grossed_by", ""),
+             ("Archive", "archive_location", "")],
+    search_fields=["block_id", "tissue_type"],
+)
+
+slides = CrudResource(
+    "slide", HistoSlide, views.HistoSlideForm,
+    roles=views.LAB_STAFF, title="Histology slides", singular="slide",
+    columns=[("Slide", "slide_id", "mono"), ("Block", "block.block_id", "mono"),
+             ("Stain", "stain", ""), ("Status", "status", ""), ("By", "stained_by", "")],
+    search_fields=["slide_id", "stain"],
+)
+
+cultures = CrudResource(
+    "culture", MicroCulture, views.MicroCultureForm,
+    roles=views.LAB_STAFF, title="Cultures", singular="culture",
+    columns=[("Order", "order.accession_number", "mono"), ("Status", "status", ""),
+             ("Incubator", "incubator_location", ""), ("Set up", "setup_time", "nowrap"),
+             ("Hours", "incubation_hours", "")],
+)
+
+susceptibilities = CrudResource(
+    "susceptibility", SusceptibilityResult, views.SusceptibilityForm,
+    roles=views.LAB_STAFF, title="Susceptibility results", singular="susceptibility result",
+    columns=[("Organism", "organism", ""), ("Antibiotic", "antibiotic.name", ""),
+             ("MIC", "mic", ""), ("Zone", "zone_diameter", ""),
+             ("Interpretation", "interpretation", ""), ("Reported", "reported", ""),
+             ("Standard", "standard", "")],
+    search_fields=["organism"],
+)
+
+antibiotics = CrudResource(
+    "antibiotic", Antibiotic, views.AntibioticForm,
+    roles=views.MANAGERS, title="Antibiotics", singular="antibiotic",
+    columns=[("Name", "name", ""), ("Code", "code", "mono"),
+             ("Class", "drug_class", ""), ("Tier", "tier", ""), ("Active", "active", "")],
+    search_fields=["name", "code"],
+)
+
 urlpatterns = [
     path("histology/", views.histology, name="histology"),
-    path("histology/blocks/", views.HistoBlockListView.as_view(), name="blocks"),
-    path("histology/blocks/new/", views.HistoBlockCreateView.as_view(), name="block_create"),
-    path("histology/blocks/<str:pk>/", views.HistoBlockUpdateView.as_view(), name="block_update"),
-    path("histology/slides/", views.HistoSlideListView.as_view(), name="slides"),
-    path("histology/slides/new/", views.HistoSlideCreateView.as_view(), name="slide_create"),
-    path("histology/slides/<str:pk>/", views.HistoSlideUpdateView.as_view(), name="slide_update"),
-
     path("microbiology/", views.microbiology, name="microbiology"),
-    path("microbiology/cultures/", views.CultureListView.as_view(), name="cultures"),
-    path("microbiology/cultures/new/", views.CultureCreateView.as_view(), name="culture_create"),
-    path("microbiology/cultures/<str:pk>/", views.CultureUpdateView.as_view(), name="culture_update"),
-    path("microbiology/susceptibilities/", views.SusceptibilityListView.as_view(), name="susceptibilities"),
-    path("microbiology/susceptibilities/new/", views.SusceptibilityCreateView.as_view(), name="susceptibility_create"),
-    path("microbiology/antibiotics/", views.AntibioticListView.as_view(), name="antibiotics"),
-    path("microbiology/antibiotics/new/", views.AntibioticCreateView.as_view(), name="antibiotic_create"),
-    path("microbiology/antibiotics/<str:pk>/", views.AntibioticUpdateView.as_view(), name="antibiotic_update"),
+
+    *blocks.urls("histology/blocks/"),
+    *slides.urls("histology/slides/"),
+    *cultures.urls("microbiology/cultures/"),
+    *susceptibilities.urls("microbiology/susceptibilities/"),
+    *antibiotics.urls("microbiology/antibiotics/"),
 ]

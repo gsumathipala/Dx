@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}Storage{% endblock %}
 {% block page_title %}Specimen storage{% endblock %}
-{% block page_actions %}<a class="btn" href="{% url 'operations:storage_locations' %}">Locations</a>{% endblock %}
+{% block page_actions %}<a class="btn" href="{% url 'operations:storage_location_list' %}">Locations</a>{% endblock %}
 {% block content %}
 <div class="card"><div class="card-header"><h3>Store a specimen</h3></div>
     <div class="card-body"><form method="post">{% csrf_token %}{% include "partials/form.html" %}

@@ -7,7 +7,7 @@ from datetime import timedelta
 from django.db import models
 from django.utils import timezone
 
-from apps.common.models import ActivatableModel, IdentifiedModel
+from apps.common.models import ActivatableModel, ActiveQuerySet, IdentifiedModel
 
 
 class RejectionCriterion(IdentifiedModel, ActivatableModel):
@@ -129,6 +129,18 @@ class QcRun(IdentifiedModel):
         return self.status == self.Status.FAIL and self.corrective_action_id is None
 
 
+class EquipmentQuerySet(ActiveQuerySet):
+    def calibration_overdue(self):
+        """Active instruments past their calibration date — CLIA §493.1254.
+
+        Mirrors ``Equipment.calibration_overdue`` for a single instance.
+        """
+        return self.filter(active=True, next_calibration_date__lt=timezone.localdate())
+
+    def service_overdue(self):
+        return self.filter(active=True, next_service_date__lt=timezone.localdate())
+
+
 class Equipment(IdentifiedModel, ActivatableModel):
     class Status(models.TextChoices):
         ACTIVE = "Active", "Active"
@@ -147,6 +159,8 @@ class Equipment(IdentifiedModel, ActivatableModel):
     next_service_date = models.DateField(null=True, blank=True)
     last_calibration_date = models.DateField(null=True, blank=True)
     next_calibration_date = models.DateField(null=True, blank=True)
+
+    objects = EquipmentQuerySet.as_manager()
 
     class Meta:
         db_table = "equipment"

@@ -9,7 +9,7 @@
 {% endblock %}
 {% block page_actions %}
     <a class="btn" href="{% url 'patients:trend' patient.pk %}">Trends</a>
-    {% if user.is_manager %}<a class="btn" href="{% url 'patients:update' patient.pk %}">Edit</a>{% endif %}
+    {% if user.is_manager %}<a class="btn" href="{% url 'patients:patient_update' patient.pk %}">Edit</a>{% endif %}
     <a class="btn" href="{% url 'audit:entity_history' entity_type patient.pk %}">Audit history</a>
 {% endblock %}
 

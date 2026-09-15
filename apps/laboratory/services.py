@@ -4,10 +4,11 @@ from __future__ import annotations
 import logging
 from datetime import date
 
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, models, transaction
 from django.db.models import Max
 from django.utils import timezone
 
+from apps.audit.recorder import record
 from apps.common.constants import AuditAction, OrderStatus
 from apps.laboratory.models import Order, Result, ResultSignature, TestDefinition
 
@@ -243,6 +244,138 @@ def save_results(
         "signature": signature,
         "engine": engine_outcomes,
     }
+
+
+@transaction.atomic
+def amend_report(*, order, result, corrected_value, reason, narrative, user,
+                 password=None, request=None, notified_method=None):
+    """Issue a corrected report, retaining the original value.
+
+    CAP requires the original result to remain visible, the report to be marked
+    as amended with an explanation, the correction to be signed, and the
+    requesting clinician to be notified. All four happen here or none do.
+    """
+    from apps.compliance.models import AmendedReport, CorrectiveAction, ElectronicSignature
+    from apps.compliance.services import apply_signature, raise_capa
+
+    original_value = result.value
+    # The released report is version 1, so the first amendment is version 2.
+    # Taken from the highest existing version rather than a count, so a deleted
+    # or out-of-order row cannot produce a duplicate.
+    highest = order.amendments.aggregate(models.Max("version"))["version__max"] or 1
+    version = highest + 1
+
+    signature = apply_signature(
+        user=user,
+        meaning=ElectronicSignature.Meaning.CORRECTION,
+        entity_type="laboratory.Order",
+        entity_id=order.pk,
+        payload={
+            "accession": order.accession_number,
+            "test": result.test_key,
+            "from": original_value,
+            "to": str(corrected_value),
+            "version": version,
+        },
+        password=password,
+        comment=narrative,
+        request=request,
+    )
+
+    amendment = AmendedReport.objects.create(
+        order=order,
+        result=result,
+        version=version,
+        reason=reason,
+        original_value=original_value,
+        corrected_value=str(corrected_value),
+        narrative=narrative,
+        amended_by=user,
+        signature=signature,
+        clinician_notified=bool(notified_method),
+        notified_at=timezone.now() if notified_method else None,
+        notified_by=user.username if notified_method else None,
+        notification_method=notified_method,
+    )
+
+    # A released result that had to be corrected is a nonconformance by
+    # definition — the report already went out wrong.
+    amendment.corrective_action = raise_capa(
+        title=f"Amended report {order.accession_number}: {result.test_key}",
+        category=CorrectiveAction.Category.RESULT_ERROR,
+        description=(
+            f"{result.test_key} corrected from {original_value} to {corrected_value} "
+            f"after the report was released. Reason: {reason}. {narrative}"
+        ),
+        raised_by=user,
+        severity=CorrectiveAction.Severity.HIGH,
+        linked_entity_type="laboratory.Order",
+        linked_entity_id=order.pk,
+        patient_impact=True,
+    )
+    amendment.save(update_fields=["corrective_action"])
+
+    result.value = str(corrected_value)
+    result.save()
+    result.recompute_flags()
+    result.save(update_fields=["result_flags"])
+
+    record(
+        action=AuditAction.UPDATE,
+        entity_type="laboratory.Order",
+        entity_id=order.pk,
+        entity_label=f"amended report v{version} for {order.accession_number}",
+        changes={result.test_key: {"old": original_value, "new": str(corrected_value)}},
+        reason=narrative,
+        blocking=True,
+    )
+    return amendment
+
+
+@transaction.atomic
+def verify_batch(*, orders, user, password, request=None, reason=None):
+    """Clinically verify several orders under one signing.
+
+    Part 11 §11.50 requires each signed record to carry the signer, the time
+    and the meaning of the signature — it does not require a separate password
+    entry per record, provided the signature manifest says exactly what was
+    signed. Each order is still put through every gate individually, and any
+    that fails is reported rather than skipped silently.
+
+    Returns (verified, refusals) where refusals is a list of (order, reason).
+    """
+    from apps.compliance.services import ControlViolation
+
+    verified, refusals = [], []
+
+    for order in orders:
+        values = {
+            result.test_key: result.value
+            for result in order.results.all()
+            if not result.is_report_row and result.value is not None
+        }
+        if not values:
+            refusals.append((order, "No results have been entered."))
+            continue
+
+        try:
+            # A savepoint per order, so one refusal does not undo the rest.
+            with transaction.atomic():
+                save_results(
+                    order=order,
+                    values=values,
+                    user=user,
+                    action=AuditAction.CLINICAL_VERIFY,
+                    password=password,
+                    request=request,
+                    reason=reason,
+                )
+        except (ControlViolation, ResultEntryError) as refusal:
+            refusals.append((order, str(refusal)))
+        else:
+            verified.append(order)
+
+    return verified, refusals
 
 
 def release_report(order, user, *, password: str | None = None, request=None):

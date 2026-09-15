@@ -1,16 +1,16 @@
 {% extends "base.html" %}
 {% block title %}{{ order.accession_number }}{% endblock %}
-{% block page_title %}Result entry — {{ order.accession_number }}{% endblock %}
+{% block page_title %}{{ order.accession_number }}{% endblock %}
 {% block page_subtitle %}
     <div class="subtitle">
         {{ order.patient.full_name }} · {{ order.patient.mrn }} ·
         {{ order.patient.age_display }} {{ order.patient.get_gender_display }} ·
-        {{ order.status }}
+        {{ order.status|status_badge }}
     </div>
 {% endblock %}
 {% block page_actions %}
     <a class="btn" href="{% url 'patients:detail' order.patient.pk %}">Patient record</a>
-    <a class="btn" href="{% url 'audit:entity_history' entity_type order.pk %}">Audit history</a>
+    <a class="btn" href="{% url 'audit:entity_history' entity_type order.pk %}">History</a>
 {% endblock %}
 
 {% block content %}
@@ -33,77 +33,119 @@
     </div>
 {% endif %}
 
-<form method="post">
+<form method="post" data-dx-entry-form>
     {% csrf_token %}
     <div class="card">
-        <div class="card-header"><h3>Results</h3><span class="muted">{{ order.priority }}</span></div>
+        <div class="card-header">
+            <h3>Results</h3>
+            <span class="muted">
+                {{ order.priority }} · {{ order.turnaround_hours|floatformat:1 }}h elapsed
+            </span>
+        </div>
         <div class="card-body flush">
-            <table class="data">
-                <thead><tr><th>Test</th><th>Result</th><th>Units</th><th>Reference</th><th>Flag</th><th>Entered by</th></tr></thead>
-                <tbody>
-                {% for test, field in form.result_fields %}
-                    {% with existing=existing|dx_attr:test.id %}
-                    <tr>
-                        <td><strong class="mono">{{ test.code }}</strong><div class="muted">{{ test.name }}</div></td>
-                        <td style="width:180px">{{ field }}
-                            {% for error in field.errors %}<div class="error">{{ error }}</div>{% endfor %}</td>
-                        <td class="muted">{{ test.units|default:"—" }}</td>
-                        <td class="muted nowrap">{{ test.reference_display }}</td>
-                        <td>
-                            {% for result in order.results.all %}
-                                {% if result.test_key == test.id %}
-                                    {% for flag in result.result_flags %}{{ flag|status_badge }}{% endfor %}
+            <div class="table-wrap">
+                <table class="data entry-table">
+                    <thead><tr>
+                        <th>Test</th><th style="width:150px">Result</th><th>Units</th>
+                        <th>Reference</th><th>Previous</th><th>Flag</th><th>Entered by</th>
+                    </tr></thead>
+                    <tbody>
+                    {% for row in rows %}
+                        <tr>
+                            <td>
+                                <strong class="mono">{{ row.test.code }}</strong>
+                                <div class="muted">{{ row.test.name }}</div>
+                            </td>
+                            <td>
+                                {{ row.field }}
+                                {% for error in row.field.errors %}<div class="error">{{ error }}</div>{% endfor %}
+                            </td>
+                            <td class="muted">{{ row.test.units|default:"—" }}</td>
+                            <td class="muted nowrap">{{ row.test.reference_display }}</td>
+                            <td class="nowrap">
+                                {% if row.previous %}
+                                    <span class="prev-value">{{ row.previous.value }}</span>
+                                    <span class="muted" style="font-size:11px">
+                                        {{ row.previous.order.timestamp|timesince|cut:",.*" }} ago
+                                    </span>
+                                    {% if row.direction == "up" %}<span class="trend-up">▲</span>
+                                    {% elif row.direction == "down" %}<span class="trend-down">▼</span>{% endif %}
+                                {% else %}
+                                    <span class="muted">no prior</span>
                                 {% endif %}
-                            {% endfor %}
-                        </td>
-                        <td class="muted">
-                            {% for result in order.results.all %}
-                                {% if result.test_key == test.id %}{{ result.entered_by|default:"—" }}{% endif %}
-                            {% endfor %}
-                        </td>
-                    </tr>
-                    {% endwith %}
-                {% empty %}
-                    <tr><td colspan="6" class="empty">No tests on this order.</td></tr>
-                {% endfor %}
-                </tbody>
-            </table>
+                            </td>
+                            <td>
+                                {% if row.result %}
+                                    {% for flag in row.result.result_flags %}{{ flag|status_badge }}{% endfor %}
+                                {% endif %}
+                            </td>
+                            <td class="muted">{{ row.result.entered_by|default:"—" }}</td>
+                        </tr>
+                    {% empty %}
+                        <tr><td colspan="7" class="empty">No tests on this order.</td></tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
         </div>
     </div>
 
     <div class="card">
-        <div class="card-header"><h3>Report comment and authorisation</h3></div>
+        <div class="card-header">
+            <h3>{% if next_action.label %}{{ next_action.label }}{% else %}Status{% endif %}</h3>
+        </div>
         <div class="card-body">
-            <div class="form-row">
-                <div class="field"><label for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>{{ form.notes }}</div>
-                <div class="field"><label for="{{ form.queue.id_for_label }}">{{ form.queue.label }}</label>{{ form.queue }}</div>
-            </div>
-            <div class="form-row">
-                <div class="field">
-                    <label for="{{ form.password.id_for_label }}">{{ form.password.label }}</label>
-                    {{ form.password }}
-                    <div class="help">{{ form.password.help_text }}</div>
-                </div>
-                <div class="field"><label for="{{ form.reason.id_for_label }}">{{ form.reason.label }}</label>{{ form.reason }}</div>
-            </div>
+            <p class="muted" style="margin-top:0">{{ next_action.hint }}</p>
 
-            <div class="btn-group">
-                <button class="btn btn-primary" type="submit" name="action" value="">Save results</button>
-                <button class="btn" type="submit" name="action" value="TECHNICAL_VALIDATE">Technically validate</button>
-                <button class="btn" type="submit" name="action" value="CLINICAL_VERIFY">Clinically verify &amp; complete</button>
-            </div>
-            <p class="muted" style="margin:10px 0 0;font-size:12px">
-                Validation applies your electronic signature and is checked against
-                your competency, the current QC status, and the rule that the
-                analyst who entered a result may not verify it.
-            </p>
+            {% if next_action.value is not None %}
+                <div class="form-row">
+                    <div class="field">
+                        <label for="{{ form.notes.id_for_label }}">{{ form.notes.label }}</label>
+                        {{ form.notes }}
+                    </div>
+                    <div class="field">
+                        <label for="{{ form.queue.id_for_label }}">{{ form.queue.label }}</label>
+                        {{ form.queue }}
+                    </div>
+                </div>
+
+                {% if next_action.needs_password %}
+                    <div class="form-row">
+                        <div class="field">
+                            <label for="{{ form.password.id_for_label }}">Your password</label>
+                            {{ form.password }}
+                            <div class="help">Re-entered at signing — 21 CFR Part 11 §11.200(a)(1).</div>
+                        </div>
+                        <div class="field">
+                            <label for="{{ form.reason.id_for_label }}">{{ form.reason.label }}</label>
+                            {{ form.reason }}
+                        </div>
+                    </div>
+                {% endif %}
+
+                <div class="btn-group">
+                    <button class="btn btn-primary" type="submit"
+                            name="action" value="{{ next_action.value }}">
+                        {{ next_action.label }}
+                    </button>
+                    {% if next_action.value %}
+                        {# Values can still be corrected without authorising them. #}
+                        <button class="btn" type="submit" name="action" value="">Save without authorising</button>
+                    {% endif %}
+                    <span class="muted" style="font-size:12px">
+                        Enter moves to the next field · Ctrl+Enter submits
+                    </span>
+                </div>
+            {% else %}
+                <a class="btn" href="{% url 'reporting:report_detail' order.pk %}">View report</a>
+            {% endif %}
         </div>
     </div>
 </form>
 
 {% if signatures %}
 <div class="card">
-    <div class="card-header"><h3>Signatures on this order</h3></div>
+    <div class="card-header"><h3>Signatures</h3></div>
     <div class="card-body flush">
         <table class="data">
             <thead><tr><th>Type</th><th>Signed by</th><th>When</th><th>Address</th></tr></thead>
@@ -120,8 +162,10 @@
 {% endif %}
 
 <div class="card">
-    <div class="card-header"><h3>Recent audit events</h3>
-        <a class="btn btn-sm" href="{% url 'audit:entity_history' entity_type order.pk %}">Full history</a></div>
+    <div class="card-header">
+        <h3>Recent activity</h3>
+        <a class="btn btn-sm" href="{% url 'audit:entity_history' entity_type order.pk %}">Full history</a>
+    </div>
     <div class="card-body flush">
         <table class="data">
             <thead><tr><th>When</th><th>User</th><th>Action</th><th>Changed</th></tr></thead>

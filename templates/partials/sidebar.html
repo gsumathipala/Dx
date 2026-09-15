@@ -1,24 +1,27 @@
 <div class="sidebar no-print">
     <div class="sidebar-header">
         <h1>Dx</h1>
-        <p class="role">{{ user.get_role_display }} module</p>
+        <p class="role">{{ user.get_role_display }}</p>
     </div>
 
-    <nav class="sidebar-nav">
-        {% for title, items in nav_sections %}
-            <div class="nav-section">
-                <div class="nav-section-title">{{ title }}</div>
-                {% for item in items %}
-                    <a class="nav-item{% if request.resolver_match.view_name == item.url_name %} active{% endif %}"
-                       href="{% url item.url_name %}">{{ item.label }}</a>
-                {% endfor %}
-            </div>
-        {% endfor %}
+    {# Scan a tube from any screen: the box takes an accession number or MRN. #}
+    <form class="sidebar-search" method="get" action="{% url 'operations:search' %}">
+        <input type="search" name="q" placeholder="Scan or search…" aria-label="Search"
+               autocomplete="off" data-dx-search>
+    </form>
 
-        {% if nav_admin_items %}
+    <nav class="sidebar-nav">
+        <div class="nav-section">
+            {% for item in nav_workspace %}
+                <a class="nav-item{% if request.resolver_match.view_name == item.url_name %} active{% endif %}"
+                   href="{% url item.url_name %}">{{ item.label }}</a>
+            {% endfor %}
+        </div>
+
+        {% if nav_oversight %}
             <div class="nav-section">
-                <div class="nav-section-title">Administration</div>
-                {% for item in nav_admin_items %}
+                <div class="nav-section-title">Oversight</div>
+                {% for item in nav_oversight %}
                     <a class="nav-item{% if request.resolver_match.view_name == item.url_name %} active{% endif %}"
                        href="{% url item.url_name %}">{{ item.label }}</a>
                 {% endfor %}

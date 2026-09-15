@@ -8,16 +8,16 @@ from django.contrib.auth.decorators import login_required, user_passes_test
 from django.db.models import Avg, Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.urls import reverse_lazy
+from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 
 from apps.common.constants import LAB_STAFF_ROLES, MANAGEMENT_ROLES, OrderStatus, Role
 from apps.common.views import DxCreateView, DxListView, DxUpdateView
 from apps.operations import forms as ops_forms
 from apps.operations.models import (
-    ChainOfCustodyEvent, Feedback, Message, RoutingRule, StorageAssignment,
-    StorageLocation, SystemAlert, SystemSetting, TatBreach, TatThreshold,
-    Worksheet, Workstation,
+    ChainOfCustodyEvent, Feedback, Message, RoutingAssignment, RoutingRule,
+    StorageAssignment, StorageLocation, SystemAlert, SystemSetting, TatBreach,
+    TatThreshold, Worksheet, Workstation,
 )
 
 LAB_STAFF = tuple(LAB_STAFF_ROLES)
@@ -37,36 +37,122 @@ def healthz(request):
 
 
 @login_required
+def search(request):
+    """Resolve an identifier from anywhere in the application.
+
+    An exact accession number or MRN navigates straight to the record — the
+    common case when someone has just scanned a tube. Anything else lists what
+    matched.
+    """
+    from apps.operations.search import resolve_exact, search as run_search
+
+    query = (request.GET.get("q") or "").strip()
+
+    destination = resolve_exact(query)
+    if destination:
+        return redirect(destination)
+
+    return render(request, "operations/search.html", {
+        "query": query,
+        "hits": run_search(query),
+    })
+
+
+@login_required
+@user_passes_test(lambda u: u.is_authenticated and u.is_manager)
+def settings_index(request):
+    """Searchable index of every configuration screen.
+
+    These used to be 25 flat entries in the sidebar. Nobody scans a list that
+    long for "Delta Check Rules" — they type "delta".
+    """
+    from apps.accounts.context_processors import settings_index as build_index
+
+    query = (request.GET.get("q") or "").strip().lower()
+    items = build_index(request.user)
+    if query:
+        items = [item for item in items if query in item.haystack]
+
+    grouped: dict[str, list] = {}
+    for item in items:
+        grouped.setdefault(item.group, []).append(item)
+
+    return render(request, "operations/settings_index.html", {
+        "grouped": grouped,
+        "query": request.GET.get("q", ""),
+        "total": len(items),
+    })
+
+
+@login_required
 def dashboard(request):
-    """Operational overview for the signed-in user's role."""
+    """What needs this user now, not what happened yesterday.
+
+    The previous version was seven stat tiles and four links — it reported
+    rather than dispatched. Every row here is an action someone can take.
+    """
     from apps.clinical.models import CriticalValueNotification
     from apps.inventory.services import low_stock_items
     from apps.laboratory.models import Order
 
     now = timezone.now()
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
     orders = Order.objects.all()
-    completed_today = orders.filter(status=OrderStatus.COMPLETED, completed_at__gte=today_start)
 
+    # ── The queues this person can actually clear ────────────────────────────
+    queues = []
+    if request.user.is_lab_staff:
+        # One grouped query for all the queue sizes, rather than a COUNT each.
+        sizes = {
+            row["status"]: row["n"]
+            for row in orders.values("status").annotate(n=Count("id"))
+        }
+        stages = [
+            ("Awaiting results", [OrderStatus.RECEIVED, OrderStatus.IN_PROGRESS], ("priority", "timestamp")),
+            ("Awaiting technical validation", [OrderStatus.RESULTED], ("timestamp",)),
+            ("Awaiting clinical verification", [OrderStatus.TECHNICALLY_VALIDATED], ("timestamp",)),
+        ]
+        worklist = reverse("laboratory:results")
+        for label, statuses, ordering in stages:
+            count = sum(sizes.get(status, 0) for status in statuses)
+            if not count:
+                continue
+            queues.append({
+                "label": label,
+                "count": count,
+                "url": worklist,
+                "orders": orders.filter(status__in=statuses)
+                          .select_related("patient")
+                          .prefetch_related("tests")
+                          .order_by(*ordering)[:8],
+            })
+
+    # ── Things with a clock on them ──────────────────────────────────────────
+    critical = list(
+        CriticalValueNotification.objects.pending().select_related("patient", "test")[:8]
+    )
+    critical_total = CriticalValueNotification.objects.pending().count()
+    stat_open = list(
+        orders.pending().filter(priority="STAT").select_related("patient")[:5]
+    )
+    completed_today = orders.filter(status=OrderStatus.COMPLETED, completed_at__gte=today_start)
     turnarounds = [
         order.turnaround_hours for order in completed_today.only("timestamp", "completed_at")
         if order.turnaround_hours is not None
     ]
 
     context = {
+        "queues": queues,
+        "critical": critical,
+        "critical_count": critical_total,
+        "critical_overdue": CriticalValueNotification.objects.overdue().count(),
+        "stat_open": stat_open,
+        "stat_count": len(stat_open),
         "orders_today": orders.filter(timestamp__gte=today_start).count(),
-        "pending": orders.pending().count(),
         "completed_today": completed_today.count(),
-        "stat_pending": orders.pending().filter(priority="STAT").count(),
         "average_tat": round(sum(turnarounds) / len(turnarounds), 1) if turnarounds else None,
-        "by_status": orders.values("status").annotate(count=Count("id")).order_by("-count"),
-        "critical_pending": CriticalValueNotification.objects.filter(
-            status=CriticalValueNotification.Status.PENDING
-        ).select_related("patient", "test")[:8],
-        "recent_orders": orders.select_related("patient").order_by("-timestamp")[:12],
         "unread_messages": Message.objects.filter(recipient=request.user, read=False).count(),
-        "low_stock": low_stock_items()[:8],
+        "low_stock": low_stock_items()[:5],
     }
     return render(request, "operations/dashboard.html", context)
 
@@ -252,71 +338,6 @@ def tracking(request):
 # ── Configuration screens ────────────────────────────────────────────────────
 
 
-class WorksheetListView(DxListView):
-    model = Worksheet
-    required_roles = LAB_STAFF
-    page_title = "Worksheets"
-    search_fields = ["name"]
-    columns = [
-        ("Name", "name", ""), ("Department", "department.name", ""),
-        ("Status", "status", ""), ("Created", "created_at", "nowrap"),
-        ("By", "created_by", ""),
-    ]
-    create_url_name = "operations:worksheet_create"
-    update_url_name = "operations:worksheet_update"
-
-
-class WorksheetCreateView(DxCreateView):
-    model = Worksheet
-    form_class = ops_forms.WorksheetForm
-    required_roles = LAB_STAFF
-    page_title = "worksheet"
-    success_url = reverse_lazy("operations:worksheets")
-
-    def form_valid(self, form):
-        form.instance.created_by = self.request.user.username
-        return super().form_valid(form)
-
-
-class WorksheetUpdateView(DxUpdateView):
-    model = Worksheet
-    form_class = ops_forms.WorksheetForm
-    required_roles = LAB_STAFF
-    page_title = "worksheet"
-    success_url = reverse_lazy("operations:worksheets")
-
-
-class WorkstationListView(DxListView):
-    model = Workstation
-    required_roles = MANAGERS
-    page_title = "Workstations"
-    search_fields = ["name"]
-    columns = [
-        ("Name", "name", ""), ("Department", "department.name", ""),
-        ("Status", "status", ""), ("Queued", "queued_tests", ""),
-        ("In progress", "current_tests", ""), ("Capacity/h", "max_throughput", ""),
-        ("Active", "active", ""),
-    ]
-    create_url_name = "operations:workstation_create"
-    update_url_name = "operations:workstation_update"
-
-
-class WorkstationCreateView(DxCreateView):
-    model = Workstation
-    form_class = ops_forms.WorkstationForm
-    required_roles = MANAGERS
-    page_title = "workstation"
-    success_url = reverse_lazy("operations:workstations")
-
-
-class WorkstationUpdateView(DxUpdateView):
-    model = Workstation
-    form_class = ops_forms.WorkstationForm
-    required_roles = MANAGERS
-    page_title = "workstation"
-    success_url = reverse_lazy("operations:workstations")
-
-
 class QueueBoardView(DxListView):
     """Orders grouped by the authorisation queue they are waiting in."""
 
@@ -334,151 +355,6 @@ class QueueBoardView(DxListView):
 
         unassigned = Order.objects.filter(queue__isnull=True).pending().select_related("patient")[:25]
         return render(request, "operations/queues.html", {"queues": queues, "unassigned": unassigned})
-
-
-class RoutingRuleListView(DxListView):
-    model = RoutingRule
-    required_roles = MANAGERS
-    page_title = "Routing rules"
-    columns = [
-        ("Test", "test.code", "mono"), ("Department", "department.name", ""),
-        ("Specimen type", "specimen_type", ""), ("Priority", "priority", ""),
-        ("Active", "active", ""),
-    ]
-    create_url_name = "operations:routing_create"
-    update_url_name = "operations:routing_update"
-
-
-class RoutingRuleCreateView(DxCreateView):
-    model = RoutingRule
-    form_class = ops_forms.RoutingRuleForm
-    required_roles = MANAGERS
-    page_title = "routing rule"
-    success_url = reverse_lazy("operations:routing")
-
-
-class RoutingRuleUpdateView(DxUpdateView):
-    model = RoutingRule
-    form_class = ops_forms.RoutingRuleForm
-    required_roles = MANAGERS
-    page_title = "routing rule"
-    success_url = reverse_lazy("operations:routing")
-
-
-class TatThresholdListView(DxListView):
-    model = TatThreshold
-    required_roles = MANAGERS
-    page_title = "Turnaround time thresholds"
-    columns = [
-        ("Scope", "get_scope_display", ""), ("Test", "test.code", "mono"),
-        ("Department", "department.name", ""), ("Target (h)", "target_hours", ""),
-        ("Warning (h)", "warning_hours", ""), ("Breach (h)", "breach_hours", ""),
-        ("Priority", "priority", ""), ("Active", "active", ""),
-    ]
-    create_url_name = "operations:tat_threshold_create"
-    update_url_name = "operations:tat_threshold_update"
-
-
-class TatThresholdCreateView(DxCreateView):
-    model = TatThreshold
-    form_class = ops_forms.TatThresholdForm
-    required_roles = MANAGERS
-    page_title = "TAT threshold"
-    success_url = reverse_lazy("operations:tat_thresholds")
-
-
-class TatThresholdUpdateView(DxUpdateView):
-    model = TatThreshold
-    form_class = ops_forms.TatThresholdForm
-    required_roles = MANAGERS
-    page_title = "TAT threshold"
-    success_url = reverse_lazy("operations:tat_thresholds")
-
-
-class StorageLocationListView(DxListView):
-    model = StorageLocation
-    required_roles = LAB_STAFF
-    page_title = "Storage locations"
-    search_fields = ["name"]
-    columns = [
-        ("Name", "name", ""), ("Kind", "get_kind_display", ""), ("Path", "path", "muted"),
-        ("Temperature", "temperature", ""), ("Capacity", "capacity", ""),
-        ("Occupied", "occupancy", ""), ("Full", "is_full", ""),
-    ]
-    create_url_name = "operations:storage_location_create"
-    update_url_name = "operations:storage_location_update"
-
-
-class StorageLocationCreateView(DxCreateView):
-    model = StorageLocation
-    form_class = ops_forms.StorageLocationForm
-    required_roles = LAB_STAFF
-    page_title = "storage location"
-    success_url = reverse_lazy("operations:storage_locations")
-
-
-class StorageLocationUpdateView(DxUpdateView):
-    model = StorageLocation
-    form_class = ops_forms.StorageLocationForm
-    required_roles = LAB_STAFF
-    page_title = "storage location"
-    success_url = reverse_lazy("operations:storage_locations")
-
-
-class AlertListView(DxListView):
-    model = SystemAlert
-    required_roles = MANAGERS
-    page_title = "System alerts"
-    columns = [
-        ("Message", "message", ""), ("Type", "type", ""),
-        ("Created", "created_at", "nowrap"), ("Expires", "expires_at", "nowrap"),
-        ("Active", "active", ""),
-    ]
-    create_url_name = "operations:alert_create"
-    update_url_name = "operations:alert_update"
-
-
-class AlertCreateView(DxCreateView):
-    model = SystemAlert
-    form_class = ops_forms.SystemAlertForm
-    required_roles = MANAGERS
-    page_title = "system alert"
-    success_url = reverse_lazy("operations:alert_list")
-
-
-class AlertUpdateView(DxUpdateView):
-    model = SystemAlert
-    form_class = ops_forms.SystemAlertForm
-    required_roles = MANAGERS
-    page_title = "system alert"
-    success_url = reverse_lazy("operations:alert_list")
-
-
-class SettingListView(DxListView):
-    model = SystemSetting
-    required_roles = MANAGERS
-    page_title = "Configuration"
-    page_subtitle = "Changes here are recorded in the audit trail and may require a change control record."
-    search_fields = ["key", "description"]
-    columns = [("Key", "key", "mono"), ("Value", "value", ""), ("Description", "description", "muted")]
-    create_url_name = "operations:setting_create"
-    update_url_name = "operations:setting_update"
-
-
-class SettingCreateView(DxCreateView):
-    model = SystemSetting
-    form_class = ops_forms.SystemSettingForm
-    required_roles = MANAGERS
-    page_title = "setting"
-    success_url = reverse_lazy("operations:settings")
-
-
-class SettingUpdateView(DxUpdateView):
-    model = SystemSetting
-    form_class = ops_forms.SystemSettingForm
-    required_roles = MANAGERS
-    page_title = "setting"
-    success_url = reverse_lazy("operations:settings")
 
 
 @login_required

@@ -3,54 +3,12 @@ from __future__ import annotations
 
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render
-from django.urls import reverse_lazy
 
 from apps.common.constants import LAB_STAFF_ROLES, MANAGEMENT_ROLES, Role
-from apps.common.views import DxCreateView, DxListView, DxUpdateView
-from apps.patients.forms import PatientForm
 from apps.patients.models import Patient
 
 MANAGERS = tuple(MANAGEMENT_ROLES)
 STAFF = tuple(LAB_STAFF_ROLES) + (Role.CLERK, Role.PHLEBOTOMIST)
-
-
-class PatientListView(DxListView):
-    model = Patient
-    required_roles = None
-    page_title = "Patients"
-    search_fields = ["first_name", "last_name", "mrn", "phone", "email"]
-    columns = [
-        ("MRN", "mrn", "mono"), ("Name", "full_name", ""),
-        ("Date of birth", "dob", "nowrap"), ("Age", "age_display", ""),
-        ("Sex", "get_gender_display", ""), ("Phone", "phone", ""),
-    ]
-    create_url_name = "patients:create"
-    update_url_name = "patients:update"
-    empty_message = "No patients registered yet."
-
-
-class PatientAdminListView(PatientListView):
-    """Manager view — same list, with the administrative actions enabled."""
-
-    required_roles = MANAGERS
-    page_title = "Patient data administration"
-    page_subtitle = "Demographic corrections are recorded against your account in the audit trail."
-
-
-class PatientCreateView(DxCreateView):
-    model = Patient
-    form_class = PatientForm
-    required_roles = STAFF
-    page_title = "patient"
-    success_url = reverse_lazy("patients:list")
-
-
-class PatientUpdateView(DxUpdateView):
-    model = Patient
-    form_class = PatientForm
-    required_roles = MANAGERS
-    page_title = "patient"
-    success_url = reverse_lazy("patients:list")
 
 
 @login_required

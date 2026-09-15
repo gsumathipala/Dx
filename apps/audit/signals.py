@@ -88,6 +88,18 @@ def label_for(instance) -> str:
         return f"{instance._meta.object_name}:{instance.pk}"
 
 
+def warn_about_bulk_operations() -> None:
+    """Explain the one hole in automatic capture.
+
+    ``bulk_create``, ``bulk_update`` and ``QuerySet.update`` do not emit model
+    signals, so writes made that way produce no audit event. That is a Django
+    behaviour, not something this module can intercept. Anything performing a
+    bulk write must either record its own summary event (see
+    ``manage.py import_legacy``) or wrap the block in ``suppress_auditing()``
+    to make the omission deliberate and visible in the code.
+    """
+
+
 @receiver(pre_save)
 def capture_previous_state(sender, instance, **kwargs):
     """Stash the stored row so post_save can diff against it."""
