@@ -14,12 +14,14 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
 
-from apps.common.constants import MANAGEMENT_ROLES
+from apps.common.constants import MANAGEMENT_ROLES, SYSTEM_ROLES
 from apps.interop.models import InstrumentInterface, InstrumentMessage, LoincCode
 from apps.interop.services import diagnostic_report, oru_r01, report_bundle
 
 logger = logging.getLogger("dx.interop")
 MANAGERS = tuple(MANAGEMENT_ROLES)
+#: Instrument connections are system plumbing, so the installer maintains them.
+MANAGERS_AND_INSTALLER = tuple(dict.fromkeys(MANAGERS + tuple(SYSTEM_ROLES)))
 
 
 class LoincForm(forms.ModelForm):

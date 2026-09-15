@@ -28,7 +28,8 @@ PAGE_SIZE = 50
 
 
 def _manager_required(user):
-    return user.is_authenticated and user.is_manager
+    """Managers assure the trail clinically; the installer assures it technically."""
+    return user.is_authenticated and (user.is_manager or user.is_installer)
 
 
 def _filtered_events(request):

@@ -17,7 +17,7 @@ loinc = CrudResource(
 
 interfaces = CrudResource(
     "interface", InstrumentInterface, views.InterfaceForm,
-    roles=views.MANAGERS, title="Instrument interfaces", singular="instrument interface",
+    roles=views.MANAGERS_AND_INSTALLER, title="Instrument interfaces", singular="instrument interface",
     list_template="interop/interfaces.html",
     columns=[("Name", "name", ""), ("Protocol", "get_protocol_display", ""),
              ("Direction", "get_direction_display", ""), ("Host", "host", "mono"),
@@ -28,7 +28,7 @@ interfaces = CrudResource(
 
 messages = CrudResource(
     "message", InstrumentMessage, None,
-    roles=views.MANAGERS, title="Instrument message log",
+    roles=views.MANAGERS_AND_INSTALLER, title="Instrument message log",
     columns=[("Received", "received_at", "nowrap"), ("Interface", "interface.name", ""),
              ("Accession", "accession_number", "mono"), ("Status", "status", ""),
              ("Applied", "results_applied", ""), ("Error", "error", "muted")],

@@ -128,14 +128,33 @@ Open **http://127.0.0.1:8000**.
 | `rclerk` | Reception Clerk | Clerk | Accessioning, specimen reception, phlebotomy scheduling, patient registration |
 | `pphleb` | Phlebotomist | Phlebotomist | Phlebotomy rounds and collection |
 
-### Creating a real administrator instead
+### Creating real accounts instead
 
-For anything beyond evaluation, create your own account and do not seed the
-demonstration data:
+For anything beyond evaluation, do not seed the demonstration data. Create the
+installer account, sign in as it, and add your staff from **Settings → Users**:
 
 ```bash
-python manage.py createsuperuser
+python manage.py create_installer --username installer
 ```
+
+The installer holds the highest **system** authority — user administration,
+configuration, instrument interfaces, maintenance and the database reset — and
+**no clinical authority at all**. It cannot open a patient, an order, a result
+or a report, and that is enforced on every request rather than by hiding menu
+entries.
+
+Two protections follow from that separation:
+
+* **Its password cannot be reset by an administrator.** Someone who could reset
+  it would simply hold its authority. Only the installer can change it, or
+  someone with shell access using `manage.py reset_installer_password`.
+* **It cannot be deleted.** A system with no installer cannot be recommissioned.
+
+The balancing control is that **an administrator can disable it**, so the
+laboratory can always shut the installer out without being able to become it.
+
+`createsuperuser` still exists, but produces a Django superuser with
+unrestricted access and no PHI barrier. Prefer `create_installer`.
 
 ---
 
@@ -206,6 +225,36 @@ instrument listener. Then seed the demonstration data if you want it:
 ```bash
 docker compose exec web python manage.py seed_demo
 ```
+
+---
+
+## Commissioning a machine, then handing it over
+
+Install, load the demonstration data, check the system behaves, then erase
+everything so the laboratory starts clean:
+
+```bash
+python manage.py reset_data --dry-run                        # review first
+python manage.py reset_data --confirm "ERASE ALL DATA" --archive-to backups/
+python manage.py create_installer --username installer
+```
+
+| Option | Effect |
+| --- | --- |
+| `--dry-run` | Report what would be deleted; delete nothing |
+| `--archive-to DIR` | Where to write the audit trail archive |
+| `--keep-users` | Leave accounts, departments and competency records |
+| `--keep-audit` | Erase operational data but keep the audit trail |
+| `--i-understand-this-is-production` | Required when `DEBUG` is off |
+
+> **This is not recoverable from inside the application.** Take a database
+> backup first.
+
+The reset cannot be silent. Before anything is deleted the audit trail is
+verified and written to a file, and the new trail opens with an entry recording
+who ran the reset, how many entries the previous trail held and the hash it
+ended on. An unexplained empty audit table would be indistinguishable from a
+cover-up, so the system will not produce one.
 
 ---
 
@@ -289,6 +338,18 @@ s = security_state(u); s.failed_attempts = 0; s.locked_until = None; s.save()
 ```
 
 Or rebuild the whole demonstration dataset with `python manage.py seed_demo --reset`.
+
+**The installer cannot open a patient, order or report**
+That is the design, not a fault. The installer maintains the system and has no
+clinical access. Ask a clinical user, or use an administrator account.
+
+**Nobody can sign in after a full reset**
+A full reset removes every account. Create one:
+`python manage.py create_installer --username installer`
+
+**The installer's password is lost**
+It cannot be reset from the web interface by design. On the server:
+`python manage.py reset_installer_password`
 
 **Sign-in says the account is locked**
 Five failed attempts locks an account for 30 minutes. Adjust with

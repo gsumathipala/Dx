@@ -72,7 +72,7 @@ risks = CrudResource(
 
 changes = CrudResource(
     "change", ChangeControl, compliance_forms.ChangeControlForm,
-    roles=views.MANAGERS, title="Change control", singular="change request",
+    roles=views.MANAGERS_AND_INSTALLER, title="Change control", singular="change request",
     subtitle="System and method changes — 21 CFR Part 11 §11.10(a)",
     columns=[("Reference", "reference", "mono"), ("Title", "title", ""),
              ("Type", "change_type", ""), ("Requested", "requested_at", "nowrap"),

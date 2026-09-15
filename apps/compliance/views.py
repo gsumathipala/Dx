@@ -10,7 +10,9 @@ from django.shortcuts import redirect, render
 from django.urls import reverse_lazy
 from django.utils import timezone
 
-from apps.common.constants import LAB_STAFF_ROLES, MANAGEMENT_ROLES, Role
+from apps.common.constants import (
+    LAB_STAFF_ROLES, MANAGEMENT_ROLES, SYSTEM_ROLES, Role,
+)
 from apps.common.views import DxCreateView, DxListView, DxUpdateView
 from apps.compliance import forms as compliance_forms
 from apps.compliance.models import (
@@ -23,6 +25,9 @@ from apps.compliance.services import next_capa_reference, record_password_change
 MANAGERS = tuple(MANAGEMENT_ROLES)
 LAB_STAFF = tuple(LAB_STAFF_ROLES)
 ADMIN_ONLY = (Role.ADMIN,)
+#: Change control covers software and configuration changes, which the
+#: installer performs and must therefore be able to record.
+MANAGERS_AND_INSTALLER = tuple(dict.fromkeys(MANAGERS + tuple(SYSTEM_ROLES)))
 
 
 # ── Password change (enforced by RegulatorySessionMiddleware) ────────────────

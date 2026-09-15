@@ -11,7 +11,9 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 
-from apps.common.constants import LAB_STAFF_ROLES, MANAGEMENT_ROLES, OrderStatus, Role
+from apps.common.constants import (
+    LAB_STAFF_ROLES, MANAGEMENT_ROLES, SYSTEM_ROLES, OrderStatus, Role,
+)
 from apps.common.views import DxCreateView, DxListView, DxUpdateView
 from apps.operations import forms as ops_forms
 from apps.operations.models import (
@@ -23,6 +25,9 @@ from apps.operations.models import (
 LAB_STAFF = tuple(LAB_STAFF_ROLES)
 MANAGERS = tuple(MANAGEMENT_ROLES)
 ADMIN_ONLY = (Role.ADMIN,)
+SYSTEM = tuple(SYSTEM_ROLES)
+#: Screens both a manager and the installer need.
+MANAGERS_AND_INSTALLER = tuple(dict.fromkeys(MANAGERS + SYSTEM))
 
 
 def healthz(request):
@@ -59,7 +64,7 @@ def search(request):
 
 
 @login_required
-@user_passes_test(lambda u: u.is_authenticated and u.is_manager)
+@user_passes_test(lambda u: u.is_authenticated and (u.is_manager or u.is_installer))
 def settings_index(request):
     """Searchable index of every configuration screen.
 
@@ -358,7 +363,7 @@ class QueueBoardView(DxListView):
 
 
 @login_required
-@user_passes_test(lambda u: u.is_authenticated and u.is_admin)
+@user_passes_test(lambda u: u.is_authenticated and (u.is_admin or u.is_installer))
 def backup(request):
     """Backup and maintenance status."""
     from apps.audit.models import AuditEvent

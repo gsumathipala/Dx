@@ -12,18 +12,19 @@ User = get_user_model()
 
 users = CrudResource(
     "user", User, account_forms.UserForm,
-    roles=views.ADMIN_ONLY, title="User management", singular="user",
+    roles=views.SYSTEM, title="User management", singular="user",
     subtitle="Unique named accounts — 21 CFR Part 11 §11.10(d). Shared logins are not permitted.",
     columns=[("Username", "username", "mono"), ("Name", "name", ""),
              ("Role", "get_role_display", ""), ("Department", "department_name", ""),
              ("Email", "email", ""), ("Active", "is_active", "")],
     search_fields=["username", "name", "email"],
     app_namespace="accounts",
+    list_template="accounts/user_list.html",
 )
 
 departments = CrudResource(
     "department", Department, account_forms.DepartmentForm,
-    roles=views.ADMIN_ONLY, title="Departments", singular="department",
+    roles=views.SYSTEM, title="Departments", singular="department",
     columns=[("Name", "name", ""), ("Code", "code", "mono"), ("Type", "type", ""),
              ("Enabled", "enabled", "")],
     search_fields=["name", "code"],
@@ -44,6 +45,11 @@ competency = CrudResource(
 urlpatterns = [
     path("login/", views.DxLoginView.as_view(), name="login"),
     path("logout/", views.DxLogoutView.as_view(), name="logout"),
+
+    # Before the users resource, whose `<pk>/` pattern would shadow these.
+    path("users/<str:pk>/reset-password/", views.reset_password, name="user_reset_password"),
+    path("users/<str:pk>/toggle-active/", views.toggle_active, name="user_toggle_active"),
+    path("users/<str:pk>/delete/", views.delete_user, name="user_delete"),
     *users.urls("users/"),
     *departments.urls("departments/"),
     *competency.urls("competency/"),

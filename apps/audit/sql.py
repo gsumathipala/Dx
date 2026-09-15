@@ -2,13 +2,16 @@
 harness and the maintenance command so there is exactly one copy of the SQL."""
 from __future__ import annotations
 
+# The function guards several tables, so it names the one that actually fired
+# rather than assuming audit_events — a deletion blocked on electronic_signatures
+# previously reported the wrong table, which sent an investigation the wrong way.
 FORBID_FUNCTION = """
 CREATE OR REPLACE FUNCTION dx_audit_forbid_mutation() RETURNS trigger AS $$
 BEGIN
     RAISE EXCEPTION
-        'audit_events is append-only: % is not permitted on this table', TG_OP
+        '% is append-only: % is not permitted on this table', TG_TABLE_NAME, TG_OP
         USING ERRCODE = 'raise_exception',
-              HINT = 'The clinical audit trail is immutable by regulation (21 CFR Part 11 §11.10(e)).';
+              HINT = 'This record is immutable by regulation (21 CFR Part 11 §11.10(e)).';
 END;
 $$ LANGUAGE plpgsql;
 """

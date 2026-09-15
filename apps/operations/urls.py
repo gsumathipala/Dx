@@ -69,7 +69,7 @@ storage_locations = CrudResource(
 
 alerts = CrudResource(
     "alert", SystemAlert, ops_forms.SystemAlertForm,
-    roles=views.MANAGERS, title="System alerts", singular="system alert",
+    roles=views.MANAGERS_AND_INSTALLER, title="System alerts", singular="system alert",
     columns=[("Message", "message", ""), ("Type", "type", ""),
              ("Created", "created_at", "nowrap"), ("Expires", "expires_at", "nowrap"),
              ("Active", "active", "")],
@@ -77,7 +77,7 @@ alerts = CrudResource(
 
 settings_resource = CrudResource(
     "setting", SystemSetting, ops_forms.SystemSettingForm,
-    roles=views.MANAGERS, title="Configuration", singular="setting",
+    roles=views.MANAGERS_AND_INSTALLER, title="Configuration", singular="setting",
     subtitle="Changes here are recorded in the audit trail and may require a change control record.",
     columns=[("Key", "key", "mono"), ("Value", "value", ""), ("Description", "description", "muted")],
     search_fields=["key", "description"],

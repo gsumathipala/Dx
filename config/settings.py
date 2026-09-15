@@ -74,6 +74,10 @@ MIDDLEWARE = [
     "apps.accounts.middleware.LoginRequiredMiddleware",
     # Dx: enforces password expiry, idle auto-logoff and account lockout.
     "apps.compliance.middleware.RegulatorySessionMiddleware",
+    # Dx: refuses patient-facing screens to roles barred from them (installer).
+    # Placed before the access log so a refused request is not recorded as a
+    # PHI access that never happened.
+    "apps.accounts.phi_barrier.PHIBarrierMiddleware",
     # Dx: records PHI access for HIPAA disclosure accounting.
     "apps.compliance.middleware.PHIAccessLogMiddleware",
 ]

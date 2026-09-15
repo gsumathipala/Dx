@@ -29,10 +29,36 @@ class SettingsItem:
     visible: bool = True
     #: Extra words people might search for that are not in the label.
     keywords: str = ""
+    #: True for system administration, False for laboratory configuration.
+    #: The installer sees only the former: the test catalogue, clinical rules
+    #: and QC targets are the laboratory's decisions, not the maintainer's.
+    system: bool = False
 
     @property
     def haystack(self) -> str:
         return f"{self.label} {self.group} {self.description} {self.keywords}".lower()
+
+
+def _installer_workspace(user):
+    """The installer commissions and maintains; it runs no laboratory work."""
+    return [
+        NavItem("Maintenance", "operations:backup", "wrench"),
+        NavItem("Users", "accounts:user_list", "users"),
+        NavItem("Departments", "accounts:department_list", "layers"),
+        NavItem("Instrument interfaces", "interop:interface_list", "plug"),
+        NavItem("Configuration", "operations:setting_list", "settings"),
+        NavItem("Settings index", "operations:settings_index", "list"),
+        NavItem("My password", "compliance:password_change", "key"),
+    ]
+
+
+def _installer_oversight(user):
+    return [
+        NavItem("Audit Trail", "audit:trail", "shield-check"),
+        NavItem("Chain Integrity", "audit:integrity", "fingerprint"),
+        NavItem("Change Control", "compliance:change_list", "git-branch"),
+        NavItem("System Alerts", "operations:alert_list", "alert-circle"),
+    ]
 
 
 def _workspace(user):
@@ -68,6 +94,7 @@ def _oversight(user):
         NavItem("Nonconformances", "compliance:capa_list", "alert-triangle", user.is_lab_staff),
         NavItem("Turnaround", "operations:tat", "clock", user.is_lab_staff),
         NavItem("Settings", "operations:settings_index", "settings", user.is_manager),
+        NavItem("My password", "compliance:password_change", "key"),
     ]
 
 
@@ -75,10 +102,19 @@ def settings_index(user):
     """Every configuration screen, grouped and searchable.
 
     Nobody scans a 25-item list for "Delta Check Rules" — they type "delta".
+
+    An installer is shown only the system entries: laboratory configuration
+    belongs to the laboratory, and several of those screens would reveal
+    patient-linked content anyway.
     """
     is_admin = user.is_admin
     is_manager = user.is_manager
     is_lab = user.is_lab_staff
+    is_installer = user.is_installer
+    if is_installer:
+        # An installer holds system authority regardless of these role flags.
+        is_admin = is_manager = True
+        is_lab = False
 
     items = [
         # ── Test catalogue ───────────────────────────────────────────────────
@@ -135,7 +171,7 @@ def settings_index(user):
                      "Assessed risks and their mitigations.", is_manager, "iso 15189 hazard"),
         SettingsItem("Change control", "compliance:change_list", "Compliance",
                      "Changes affecting result production, and their validation.",
-                     is_manager, "part 11 software"),
+                     is_manager, "part 11 software", system=True),
         SettingsItem("Training records", "compliance:training_list", "Compliance",
                      "Training delivered and assessed.", True, "competency staff"),
         SettingsItem("User competency", "accounts:competency_list", "Compliance",
@@ -150,9 +186,10 @@ def settings_index(user):
 
         # ── Access and privacy ───────────────────────────────────────────────
         SettingsItem("Users", "accounts:user_list", "Access and privacy",
-                     "Named accounts and their roles.", is_admin, "staff login account"),
+                     "Named accounts, roles, password resets and account suspension.",
+                     is_admin, "staff login account password reset disable", system=True),
         SettingsItem("Departments", "accounts:department_list", "Access and privacy",
-                     "Disciplines the laboratory is organised into.", is_admin, "discipline"),
+                     "Disciplines the laboratory is organised into.", is_admin, "discipline", system=True),
         SettingsItem("Authorisation queues", "laboratory:queue_list", "Access and privacy",
                      "How work awaiting authorisation is segregated.", is_manager, "workflow"),
         SettingsItem("PHI access log", "compliance:phi_access_list", "Access and privacy",
@@ -163,7 +200,7 @@ def settings_index(user):
                      "hipaa 164.528"),
         SettingsItem("Chain integrity", "audit:integrity", "Access and privacy",
                      "Verify the audit trail has not been altered.", is_manager,
-                     "hash tamper verification"),
+                     "hash tamper verification", system=True),
 
         # ── Operations ───────────────────────────────────────────────────────
         SettingsItem("Workstations", "operations:workstation_list", "Operations",
@@ -208,15 +245,15 @@ def settings_index(user):
         # ── System ───────────────────────────────────────────────────────────
         SettingsItem("Instrument interfaces", "interop:interface_list", "System",
                      "Analyser connections and their code mappings.", is_manager,
-                     "astm hl7 analyser middleware"),
+                     "astm hl7 analyser middleware", system=True),
         SettingsItem("Instrument messages", "interop:message_list", "System",
-                     "Raw traffic received from analysers.", is_manager, "astm hl7 log"),
+                     "Raw traffic received from analysers.", is_manager, "astm hl7 log", system=True),
         SettingsItem("System alerts", "operations:alert_list", "System",
-                     "Banners shown across the application.", is_manager, "banner notice"),
+                     "Banners shown across the application.", is_manager, "banner notice", system=True),
         SettingsItem("Configuration", "operations:setting_list", "System",
-                     "Key/value settings.", is_manager, "config"),
+                     "Key/value settings.", is_manager, "config", system=True),
         SettingsItem("Backup and maintenance", "operations:backup", "System",
-                     "Operational procedures and audit health.", is_admin, "restore pg_dump"),
+                     "Operational procedures and audit health.", is_admin, "restore pg_dump", system=True),
         SettingsItem("Patient data administration", "patients:patient_admin_list", "System",
                      "Demographic corrections.", is_manager, "merge correct mrn"),
         SettingsItem("KPI dashboard", "operations:kpi", "System",
@@ -234,6 +271,8 @@ def settings_index(user):
         SettingsItem("Queues", "operations:queues", "System",
                      "Work waiting in each authorisation queue.", is_lab, "workflow"),
     ]
+    if is_installer:
+        return [item for item in items if item.visible and item.system]
     return [item for item in items if item.visible]
 
 
@@ -242,7 +281,15 @@ def navigation(request):
     if not (user and user.is_authenticated):
         return {}
 
+    if user.is_installer:
+        return {
+            "nav_workspace": [i for i in _installer_workspace(user) if i.visible],
+            "nav_oversight": [i for i in _installer_oversight(user) if i.visible],
+            "nav_is_installer": True,
+        }
+
     return {
         "nav_workspace": [item for item in _workspace(user) if item.visible],
         "nav_oversight": [item for item in _oversight(user) if item.visible],
+        "nav_is_installer": False,
     }

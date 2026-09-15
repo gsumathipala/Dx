@@ -10,6 +10,7 @@ from django.db import models
 
 
 class Role(models.TextChoices):
+    INSTALLER = "installer", "System Installer"
     ADMIN = "admin", "Administrator"
     MANAGER = "manager", "Laboratory Manager"
     SCIENTIST = "scientist", "Biomedical Scientist"
@@ -19,9 +20,27 @@ class Role(models.TextChoices):
 
 
 #: Roles permitted to act on clinical laboratory data.
+#:
+#: The installer is deliberately absent. It holds the highest *system*
+#: authority — commissioning, user administration, maintenance and the
+#: database reset that nobody else can run — and no clinical authority at all.
+#: The two are separate axes, not a ladder: separating the person who
+#: administers the system from the people who can read patient records is
+#: ordinary segregation of duties, and satisfies the HIPAA "minimum necessary"
+#: standard (45 CFR §164.502(b)) for technical staff who have no care
+#: relationship with the patient.
 LAB_STAFF_ROLES = (Role.ADMIN, Role.MANAGER, Role.SCIENTIST, Role.MEDIC)
 #: Roles permitted to change laboratory configuration.
 MANAGEMENT_ROLES = (Role.ADMIN, Role.MANAGER)
+#: Roles permitted to administer the system itself: accounts, configuration,
+#: instrument interfaces, maintenance and change control.
+#:
+#: Laboratory configuration — the test catalogue, clinical rules, QC targets,
+#: retention policies — is deliberately *not* here. Those are clinical
+#: decisions belonging to the laboratory, not to whoever maintains the server.
+SYSTEM_ROLES = (Role.INSTALLER, Role.ADMIN)
+#: Roles barred from every screen that can expose patient information.
+PHI_BARRED_ROLES = (Role.INSTALLER,)
 
 
 class OrderStatus(models.TextChoices):

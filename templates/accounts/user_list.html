@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}{{ page_title }}{% endblock %}
+{% block page_title %}{{ page_title }}{% endblock %}
+{% block page_subtitle %}<div class="subtitle">{{ page_subtitle }}</div>{% endblock %}
+{% block page_actions %}
+    <a class="btn btn-primary" href="{% url 'accounts:user_create' %}">New user</a>
+{% endblock %}
+
+{% block content %}
+<div class="alert alert-info">
+    Administrators set a <strong>temporary</strong> password, which the holder must
+    change at first sign-in — so nobody else ever knows a colleague's working
+    password. Every reset, suspension and deletion is recorded in the audit trail
+    against your account.
+</div>
+
+<form method="get" class="filters">
+    <div class="field">
+        <label for="q">Search</label>
+        <input type="search" id="q" name="q" value="{{ filters.q|default:'' }}">
+    </div>
+    <div class="btn-group">
+        <button class="btn btn-primary" type="submit">Search</button>
+        {% if filters.q %}<a class="btn" href="{{ request.path }}">Clear</a>{% endif %}
+    </div>
+</form>
+
+<div class="card">
+    <div class="card-header">
+        <h3>{{ page_obj.paginator.count }} account{{ page_obj.paginator.count|pluralize }}</h3>
+    </div>
+    <div class="card-body flush">
+        <div class="table-wrap">
+            <table class="data">
+                <thead><tr>
+                    <th>Username</th><th>Name</th><th>Role</th><th>Department</th>
+                    <th>Email</th><th>Status</th><th></th>
+                </tr></thead>
+                <tbody>
+                {% for account in object_list %}
+                    <tr>
+                        <td class="mono">{{ account.username }}
+                            {% if account.is_protected_account %}
+                                <span class="badge badge-info" title="Permanent account">permanent</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ account.name }}</td>
+                        <td>{{ account.get_role_display }}</td>
+                        <td>{{ account.department_name|default:"—" }}</td>
+                        <td class="muted">{{ account.email|default:"—" }}</td>
+                        <td>
+                            {% if account.is_active %}
+                                <span class="badge badge-ok">Active</span>
+                            {% else %}
+                                <span class="badge badge-danger">Disabled</span>
+                            {% endif %}
+                        </td>
+                        <td class="right nowrap">
+                            <a class="btn btn-sm" href="{% url 'accounts:user_update' account.pk %}">Edit</a>
+
+                            {% if not account.is_protected_account %}
+                                <a class="btn btn-sm" href="{% url 'accounts:user_reset_password' account.pk %}">Reset password</a>
+                            {% endif %}
+
+                            {% if account.pk != user.pk %}
+                                <form method="post" action="{% url 'accounts:user_toggle_active' account.pk %}"
+                                      style="display:inline">
+                                    {% csrf_token %}
+                                    <button class="btn btn-sm{% if account.is_active %} btn-danger{% endif %}" type="submit">
+                                        {% if account.is_active %}Disable{% else %}Enable{% endif %}
+                                    </button>
+                                </form>
+                            {% endif %}
+
+                            {% if not account.is_protected_account and account.pk != user.pk %}
+                                <a class="btn btn-sm btn-danger" href="{% url 'accounts:user_delete' account.pk %}">Delete</a>
+                            {% endif %}
+
+                            <a class="btn btn-sm" href="{% url 'audit:entity_history' entity_type account.pk %}">History</a>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr><td colspan="7" class="empty">No accounts.</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    {% include "partials/pagination.html" %}
+</div>
+
+<p class="muted" style="font-size:12px">
+    The installer account is marked <em>permanent</em>: it cannot be deleted and its
+    password cannot be reset from here, because an administrator who could do either
+    would hold its authority. It <strong>can</strong> be disabled, which is how a
+    laboratory shuts it out.
+</p>
+{% endblock %}

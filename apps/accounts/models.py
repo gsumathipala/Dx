@@ -3,11 +3,18 @@ from __future__ import annotations
 
 from django.conf import settings
 from django.contrib.auth.models import AbstractBaseUser, BaseUserManager, PermissionsMixin
+from django.core.exceptions import PermissionDenied
 from django.db import models
 from django.utils import timezone
 
-from apps.common.constants import LAB_STAFF_ROLES, MANAGEMENT_ROLES, Role
+from apps.common.constants import (
+    LAB_STAFF_ROLES, MANAGEMENT_ROLES, PHI_BARRED_ROLES, SYSTEM_ROLES, Role,
+)
 from apps.common.models import ActivatableModel, IdentifiedModel, new_id
+
+
+class ProtectedAccountError(PermissionDenied):
+    """Raised when something attempts to remove or take over a protected account."""
 
 
 class UserManager(BaseUserManager):
@@ -85,6 +92,26 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.role == Role.ADMIN
 
     @property
+    def is_installer(self) -> bool:
+        """Commissioning and maintenance authority, with no clinical access."""
+        return self.role == Role.INSTALLER
+
+    @property
+    def is_system_staff(self) -> bool:
+        """May administer the system: users, settings, interfaces, maintenance."""
+        return self.role in SYSTEM_ROLES
+
+    @property
+    def may_see_patient_data(self) -> bool:
+        """Whether this account is permitted to see patient information at all.
+
+        Enforced by ``PHIBarrierMiddleware``, not merely hidden from the menu:
+        a role that must not see patient data must be unable to reach it by
+        typing a URL.
+        """
+        return self.role not in PHI_BARRED_ROLES
+
+    @property
     def is_manager(self) -> bool:
         return self.role in MANAGEMENT_ROLES
 
@@ -98,6 +125,52 @@ class User(AbstractBaseUser, PermissionsMixin):
     @property
     def department_name(self) -> str:
         return self.department.name if self.department_id else ""
+
+    # ── Protection of the installer account ──────────────────────────────────
+
+    @property
+    def is_protected_account(self) -> bool:
+        """The installer account cannot be deleted, nor its password reset by
+        anyone else.
+
+        It is the account of last resort for commissioning and recovery. If an
+        administrator could reset its password they would hold its authority,
+        and the separation of duties the role exists to create would be
+        theatre. It can still be **disabled** by an administrator, which is the
+        control that matters: the laboratory can always shut it out without
+        being able to become it.
+        """
+        return self.role == Role.INSTALLER
+
+    def may_be_deleted_by(self, actor) -> tuple[bool, str]:
+        if self.is_protected_account:
+            return False, (
+                "The installer account is permanent. It can be disabled, but not "
+                "deleted — a system with no installer cannot be recovered or "
+                "recommissioned."
+            )
+        if actor is not None and actor.pk == self.pk:
+            return False, "You cannot delete your own account."
+        return True, ""
+
+    def may_have_password_reset_by(self, actor) -> tuple[bool, str]:
+        if actor is not None and actor.pk == self.pk:
+            return True, ""
+        if self.is_protected_account:
+            return False, (
+                "The installer's password cannot be reset from here. Only the "
+                "installer can change it, or someone with shell access to the "
+                "server using `manage.py reset_installer_password`. You can "
+                "disable the account if you need to shut it out."
+            )
+        return True, ""
+
+    def delete(self, *args, **kwargs):
+        if self.is_protected_account:
+            raise ProtectedAccountError(
+                "The installer account is permanent and cannot be deleted."
+            )
+        return super().delete(*args, **kwargs)
 
 
 class Department(IdentifiedModel):
