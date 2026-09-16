@@ -420,7 +420,9 @@ pre-analytical error the barcode exists to remove.
 
 ## What this system does *not* do
 
-Stated plainly, because an overstated claim is worse than a gap:
+Stated plainly, because an overstated claim is worse than a gap. Each of these
+is broken down into work items in [ROADMAP.md](ROADMAP.md) — absent by
+decision, not by oversight:
 
 * It is **not a validated medical device**. The laboratory must perform its own
   installation, operational and performance qualification.

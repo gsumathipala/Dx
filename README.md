@@ -80,6 +80,11 @@ validation, CAPA, risk register and change control.
 system, enforced append-only at the database level. See
 [docs/REGULATORY.md](docs/REGULATORY.md).
 
+**What it does not do** is stated as plainly as what it does — blood bank,
+anatomic pathology synoptic reporting, molecular, multi-site tenancy and the
+rest are absent by decision. [docs/ROADMAP.md](docs/ROADMAP.md) breaks each one
+into work items, with the decisions that must be made before starting it.
+
 **Interoperability** — FHIR R4 (Patient, Observation, DiagnosticReport,
 Bundle); HL7 v2 `ORU^R01` outbound and `ORM^O01`/`OML^O21`/`ADT` inbound with
 proper `AA`/`AE`/`AR` acknowledgement; **bidirectional instrument interfacing**
