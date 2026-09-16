@@ -400,3 +400,50 @@ class ManagementScreenTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Copy this now")
+
+
+class DeploymentCheckTests(TestCase):
+    """The checks that stop a silently-ineffective rate limit reaching production."""
+
+    def test_a_per_process_cache_is_flagged_outside_debug(self):
+        from apps.api.checks import rate_limiter_needs_a_shared_cache
+
+        with self.settings(
+            DEBUG=False,
+            CACHES={"default": {
+                "BACKEND": "django.core.cache.backends.locmem.LocMemCache"
+            }},
+        ):
+            warnings = rate_limiter_needs_a_shared_cache(None)
+        self.assertEqual([w.id for w in warnings], ["dx.W001"])
+
+    def test_a_shared_cache_passes(self):
+        from apps.api.checks import rate_limiter_needs_a_shared_cache
+
+        with self.settings(
+            DEBUG=False,
+            CACHES={"default": {
+                "BACKEND": "django.core.cache.backends.db.DatabaseCache",
+                "LOCATION": "dx_cache",
+            }},
+        ):
+            self.assertEqual(rate_limiter_needs_a_shared_cache(None), [])
+
+    def test_development_is_not_nagged(self):
+        from apps.api.checks import rate_limiter_needs_a_shared_cache
+
+        with self.settings(DEBUG=True):
+            self.assertEqual(rate_limiter_needs_a_shared_cache(None), [])
+
+    def test_an_audit_spool_on_tmp_is_flagged(self):
+        from apps.api.checks import audit_spool_must_be_durable
+
+        with self.settings(DEBUG=False, AUDIT_SPOOL_FILE="/tmp/audit-spool.jsonl"):
+            warnings = audit_spool_must_be_durable(None)
+        self.assertEqual([w.id for w in warnings], ["dx.W002"])
+
+    def test_a_durable_audit_spool_passes(self):
+        from apps.api.checks import audit_spool_must_be_durable
+
+        with self.settings(DEBUG=False, AUDIT_SPOOL_FILE="/var/lib/dx/audit-spool.jsonl"):
+            self.assertEqual(audit_spool_must_be_durable(None), [])

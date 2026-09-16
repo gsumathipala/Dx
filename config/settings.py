@@ -230,6 +230,27 @@ RECORD_LOCK_TTL_SECONDS = int(os.environ.get("RECORD_LOCK_TTL_SECONDS", "900"))
 
 MESSAGE_STORAGE = "django.contrib.messages.storage.session.SessionStorage"
 
+
+# ── Cache ────────────────────────────────────────────────────────────────────
+#
+# The default is per-process local memory, which is fine for a single-process
+# development server and **wrong for any multi-worker deployment**: anything
+# counted in the cache is then counted once per worker. The API rate limiter is
+# the case that matters — with four gunicorn workers and no shared cache, a
+# client gets four times the limit it was given.
+#
+# Set DJANGO_CACHE_BACKEND and DJANGO_CACHE_LOCATION to something shared
+# (Redis, Memcached, or the database cache table) before running more than one
+# worker. `manage.py check` refuses to stay quiet about it.
+CACHES = {
+    "default": {
+        "BACKEND": os.environ.get(
+            "DJANGO_CACHE_BACKEND", "django.core.cache.backends.locmem.LocMemCache"
+        ),
+        "LOCATION": os.environ.get("DJANGO_CACHE_LOCATION", "dx-default"),
+    }
+}
+
 TEST_RUNNER = "config.test_runner.DxTestRunner"
 
 

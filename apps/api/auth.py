@@ -92,6 +92,13 @@ def enforce_rate_limit(client: ApiClient) -> None:
     Deliberately simple. The purpose is to stop a looping integration from
     exhausting the database, not to meter billing — a sliding-window counter
     would cost a round trip per request to solve a problem nobody has.
+
+    **This is only a limit if the cache is shared between worker processes.**
+    Django's default cache is per-process, so N gunicorn workers would allow N
+    times the configured rate. ``apps.api.checks.rate_limiter_needs_a_shared_cache``
+    raises a system check warning when that is the case in a non-debug
+    deployment, because a limit that silently multiplies is worse than no
+    limit at all.
     """
     limit = client.rate_limit_per_minute or 0
     if limit <= 0:

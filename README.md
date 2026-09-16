@@ -278,6 +278,13 @@ still apply when it is on.
   encryption or PostgreSQL TDE. What the application encrypts is everything it
   writes outside the database: archives, backups and subject-access exports,
   with AES-256-GCM (`apps/compliance/encryption.py`).
+* **Configure a shared cache before running more than one worker.** The API
+  rate limiter counts in `CACHES["default"]`, which defaults to per-process
+  local memory; four gunicorn workers would therefore allow four times each
+  client's limit. `manage.py check` warns (`dx.W001`) when this is left at the
+  default outside `DEBUG`.
+* Point `AUDIT_SPOOL_FILE` at durable storage — on `/tmp` the events it exists
+  to protect are lost on the reboot that produced them (`dx.W002`).
 * Run `deliver_webhooks` and `sweep_exceptions` under your process supervisor,
   or from cron. Without the first, webhook subscribers are never called;
   without the second, conditions nobody is present to notice never reach the
