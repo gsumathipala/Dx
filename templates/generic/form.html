@@ -3,14 +3,20 @@
 {% block page_title %}{% if is_update %}Edit{% else %}New{% endif %} {{ page_title|lower }}{% endblock %}
 
 {% block content %}
+{% include "partials/record_lock.html" %}
 <div class="card" style="max-width:760px">
     <div class="card-body">
-        <form method="post" enctype="multipart/form-data">
+        <form method="post" enctype="multipart/form-data"{% if lock.blocked %} class="locked-readonly"{% endif %}>
             {% csrf_token %}
             {% include "partials/form.html" %}
             <div class="btn-group" style="margin-top:8px">
-                <button class="btn btn-primary" type="submit">Save</button>
-                <a class="btn" href="{{ request.META.HTTP_REFERER|default:'..' }}">Cancel</a>
+                {% if lock.blocked %}
+                    <span class="muted">Read-only — {{ lock.holder }} has this record open.</span>
+                    <a class="btn" href="{{ request.META.HTTP_REFERER|default:'..' }}">Back</a>
+                {% else %}
+                    <button class="btn btn-primary" type="submit">Save</button>
+                    <a class="btn" href="{{ request.META.HTTP_REFERER|default:'..' }}">Cancel</a>
+                {% endif %}
             </div>
         </form>
     </div>

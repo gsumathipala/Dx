@@ -9,6 +9,7 @@ from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 
+from apps.accounts import locking
 from apps.common.constants import AuditAction, LAB_STAFF_ROLES, MANAGEMENT_ROLES, OrderStatus, Role
 from apps.common.views import DxCreateView, DxListView, DxUpdateView
 from apps.compliance.services import ControlViolation
@@ -160,7 +161,18 @@ def result_entry(request, pk):
     order = get_object_or_404(
         Order.objects.select_related("patient").prefetch_related("tests", "results"), pk=pk
     )
+
+    # Take the lock before building the form. Two scientists entering results
+    # on one order is not a merge conflict — it is one of them silently
+    # overwriting the other, on a record a clinician will act on.
+    lock = locking.acquire("laboratory.Order", order.pk, request.user)
     form = lab_forms.ResultEntryForm(request.POST or None, order=order)
+
+    if request.method == "POST" and not lock.editable:
+        # Refused rather than merged. The other user's work is not ours to
+        # reconcile, and a partially-applied save is worse than none.
+        messages.error(request, lock.message)
+        return redirect("laboratory:result_entry", pk=order.pk)
 
     if request.method == "POST" and form.is_valid():
         action = request.POST.get("action") or None
@@ -183,6 +195,8 @@ def result_entry(request, pk):
         else:
             _report_engine_outcome(request, outcome)
             messages.success(request, f"Results saved for {order.accession_number}.")
+            # The work is done; do not hold the record while walking away.
+            locking.release("laboratory.Order", order.pk, request.user)
             return redirect("laboratory:results")
 
     from apps.audit.models import AuditEvent
@@ -197,6 +211,9 @@ def result_entry(request, pk):
         "critical_values": order.critical_values.all(),
         "audit_events": AuditEvent.objects.for_entity("laboratory.Order", order.pk)[:10],
         "entity_type": "laboratory.Order",
+        "lock": lock,
+        "lock_entity_type": "laboratory.Order",
+        "lock_entity_id": str(order.pk),
     })
 
 

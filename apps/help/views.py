@@ -104,6 +104,8 @@ CONTEXT_MAP = {
     "audit:trail": "security-and-audit/the-audit-trail",
     "audit:integrity": "security-and-audit/chain-integrity",
     "accounts:user_list": "security-and-audit/managing-users",
+    "accounts:lock_list": "getting-started/record-locking",
+    "patients:detail": "getting-started/record-locking",
     "compliance:dashboard": "quality/quality-management",
     "compliance:capa_list": "quality/corrective-actions",
     "compliance:pt_list": "quality/proficiency-testing",

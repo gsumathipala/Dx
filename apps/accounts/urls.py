@@ -1,7 +1,7 @@
 from django.urls import path
 
 from apps.accounts import forms as account_forms
-from apps.accounts import views
+from apps.accounts import lock_views, views
 from apps.accounts.models import Department, UserCompetency
 from apps.common.views import CrudResource
 from django.contrib.auth import get_user_model
@@ -45,6 +45,13 @@ competency = CrudResource(
 urlpatterns = [
     path("login/", views.DxLoginView.as_view(), name="login"),
     path("logout/", views.DxLogoutView.as_view(), name="logout"),
+
+    # Record locking: two endpoints the open page calls, and the screen a
+    # manager uses to break a lock somebody left behind.
+    path("locks/", lock_views.lock_list, name="lock_list"),
+    path("locks/heartbeat/", lock_views.heartbeat, name="lock_heartbeat"),
+    path("locks/release/", lock_views.release, name="lock_release"),
+    path("locks/<str:pk>/break/", lock_views.lock_break, name="lock_break"),
 
     # Before the users resource, whose `<pk>/` pattern would shadow these.
     path("users/<str:pk>/reset-password/", views.reset_password, name="user_reset_password"),

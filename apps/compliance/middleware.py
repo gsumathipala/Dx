@@ -58,6 +58,12 @@ class RegulatorySessionMiddleware:
             if last_seen:
                 idle_for = now.timestamp() - float(last_seen)
                 if idle_for > self.idle_limit:
+                    # Release anything they left open before the session goes.
+                    # An abandoned workstation must not hold a record hostage
+                    # for the lock's full TTL on top of the idle timeout.
+                    from apps.accounts.locking import release_all_for
+
+                    release_all_for(user)
                     logout(request)
                     messages.warning(
                         request,

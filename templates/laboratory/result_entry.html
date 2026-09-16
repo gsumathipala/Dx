@@ -14,6 +14,7 @@
 {% endblock %}
 
 {% block content %}
+{% include "partials/record_lock.html" %}
 {% if critical_values %}
     <div class="alert alert-error">
         <strong>Critical value on this order.</strong>
@@ -33,7 +34,7 @@
     </div>
 {% endif %}
 
-<form method="post" data-dx-entry-form>
+<form method="post" data-dx-entry-form{% if lock.blocked %} class="locked-readonly"{% endif %}>
     {% csrf_token %}
     <div class="card">
         <div class="card-header">
@@ -124,17 +125,25 @@
                 {% endif %}
 
                 <div class="btn-group">
-                    <button class="btn btn-primary" type="submit"
-                            name="action" value="{{ next_action.value }}">
-                        {{ next_action.label }}
-                    </button>
-                    {% if next_action.value %}
-                        {# Values can still be corrected without authorising them. #}
-                        <button class="btn" type="submit" name="action" value="">Save without authorising</button>
+                    {% if lock.blocked %}
+                        {# Reading is fine; saving would overwrite a colleague
+                           who is in the record right now. #}
+                        <span class="muted">
+                            Read-only — {{ lock.holder }} has this order open.
+                        </span>
+                    {% else %}
+                        <button class="btn btn-primary" type="submit"
+                                name="action" value="{{ next_action.value }}">
+                            {{ next_action.label }}
+                        </button>
+                        {% if next_action.value %}
+                            {# Values can still be corrected without authorising them. #}
+                            <button class="btn" type="submit" name="action" value="">Save without authorising</button>
+                        {% endif %}
+                        <span class="muted" style="font-size:12px">
+                            Enter moves to the next field · Ctrl+Enter submits
+                        </span>
                     {% endif %}
-                    <span class="muted" style="font-size:12px">
-                        Enter moves to the next field · Ctrl+Enter submits
-                    </span>
                 </div>
             {% else %}
                 <a class="btn" href="{% url 'reporting:report_detail' order.pk %}">View report</a>

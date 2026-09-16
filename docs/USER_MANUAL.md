@@ -21,6 +21,7 @@ control satisfies, see [REGULATORY.md](REGULATORY.md).
 4. [The installer account](#4-the-installer-account)
 5. [Managing user accounts](#5-managing-user-accounts)
 6. [The clinical workflow](#6-the-clinical-workflow)
+   - [Records open by someone else](#records-open-by-someone-else)
 7. [Critical values](#7-critical-values)
 8. [Quality control](#8-quality-control)
 9. [Reports and corrections](#9-reports-and-corrections)
@@ -262,6 +263,31 @@ type one.
 
 **Receiving** — record the specimen's arrival and condition. If you reject it,
 you must record the reason, so the requester can be told what to recollect.
+
+### Records open by someone else
+
+Opening a patient record or a result-entry screen **reserves it for you**.
+Somebody else opening the same record sees a banner naming you, reads it
+normally, and cannot save changes until you leave.
+
+This is deliberate. Two scientists entering results on one order is not a merge
+conflict to be reconciled afterwards — it is one of them silently overwriting
+the other, on a record a clinician will act on.
+
+**You release a record by leaving the screen**, by saving, or by signing out.
+You do not have to do anything special.
+
+**A reservation expires by itself** after fifteen minutes of no contact, so a
+closed laptop or a crashed browser never leaves a record stuck.
+
+If you genuinely need a record somebody has left open — they are off shift and
+the sample is urgent — a manager, administrator or the installer can break the
+lock at **Settings → Record locks**. Breaking one requires a reason and is
+recorded in the audit trail against the record, because "who unlocked this and
+why" is the first question anybody asks after two people's edits collide.
+
+If your hold is broken while you are still in the screen, the page tells you.
+Reload before doing anything else; your unsaved typing will not be accepted.
 
 ### Entering results
 
@@ -688,6 +714,8 @@ Refusals are deliberate and each has a reason. The message tells you which.
 | "Your password is required" | Every signature needs re-authentication | Enter your password |
 | "This account is locked" | Five failed sign-ins | Wait 30 minutes or ask for a reset |
 | "The installer role has no access to patient or clinical data" | Separation of duties | Ask a clinical colleague |
+| "This record is open by …" | Somebody else has it reserved | Wait, or ask a manager to break the lock at Settings → Record locks |
+| "Give a reason for breaking the lock" | Overriding a control is recorded | Say why — it goes in the audit trail |
 | "The installer account is permanent" | It cannot be deleted | Disable it instead |
 | "cannot be reset from here" | The installer's password is self-service only | Use `manage.py reset_installer_password` on the server |
 | "has signed or authorised records" | Signatures must keep naming a real person | The account is disabled instead — that is the intended outcome |

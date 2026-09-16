@@ -195,6 +195,9 @@ def settings_index(user):
                      "specimen storage disposal"),
 
         # ── Access and privacy ───────────────────────────────────────────────
+        SettingsItem("Record locks", "accounts:lock_list", "Access and privacy",
+                     "Records somebody has open, and breaking a lock left behind.",
+                     is_manager, "locked concurrent editing open record", system=True),
         SettingsItem("Users", "accounts:user_list", "Access and privacy",
                      "Named accounts, roles, password resets and account suspension.",
                      is_admin, "staff login account password reset disable", system=True),
@@ -311,14 +314,20 @@ def navigation(request):
     if not (user and user.is_authenticated):
         return {}
 
+    from apps.accounts.locking import may_break
+
+    common = {"can_break_lock": may_break(user)}
+
     if user.is_installer:
         return {
+            **common,
             "nav_workspace": [i for i in _installer_workspace(user) if i.visible],
             "nav_oversight": [i for i in _installer_oversight(user) if i.visible],
             "nav_is_installer": True,
         }
 
     return {
+        **common,
         "nav_workspace": [item for item in _workspace(user) if item.visible],
         "nav_oversight": [item for item in _oversight(user) if item.visible],
         "nav_is_installer": False,

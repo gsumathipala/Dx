@@ -4,6 +4,7 @@ from __future__ import annotations
 from django.contrib.auth.decorators import login_required
 from django.shortcuts import get_object_or_404, render
 
+from apps.accounts import locking
 from apps.common.constants import LAB_STAFF_ROLES, MANAGEMENT_ROLES, Role
 from apps.patients.models import Patient
 
@@ -23,6 +24,11 @@ def patient_detail(request, pk):
     from apps.laboratory.models import Order, Result
 
     patient = get_object_or_404(Patient, pk=pk)
+
+    # Opening the record reserves it. Someone else arriving sees who has it and
+    # reads it; the edit screen refuses them until it is released.
+    lock = locking.acquire("patients.Patient", patient.pk, request.user)
+
     orders = (
         Order.objects.filter(patient=patient)
         .prefetch_related("tests", "results")
@@ -38,6 +44,9 @@ def patient_detail(request, pk):
         "disclosures": patient.disclosures.all()[:10],
         "audit_events": AuditEvent.objects.for_entity("patients.Patient", patient.pk)[:15],
         "entity_type": "patients.Patient",
+        "lock": lock,
+        "lock_entity_type": "patients.Patient",
+        "lock_entity_id": str(patient.pk),
     }
     return render(request, "patients/detail.html", context)
 

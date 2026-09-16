@@ -18,6 +18,7 @@ patients = CrudResource(
     roles=None, title="Patients", singular="patient",
     columns=PATIENT_COLUMNS,
     search_fields=["first_name", "last_name", "mrn", "phone", "email"],
+    lock_entity_type="patients.Patient",
 )
 
 # Same list reached from the administration menu; the labelling differs so a

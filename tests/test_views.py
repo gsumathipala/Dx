@@ -22,6 +22,7 @@ NON_GET_ROUTES = {
     "billing:generate", "instrument_ingest",
     "instrument_host_query", "inbound_hl7",
     "compliance:subject_request_create",
+    "accounts:lock_heartbeat", "accounts:lock_release",
 }
 
 #: Namespaces whose routes authenticate with a bearer token rather than a

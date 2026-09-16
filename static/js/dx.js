@@ -136,7 +136,94 @@
         refresh();
     }
 
+
+    /* ── Record locking ──────────────────────────────────────────────────────
+     *
+     * A screen that has reserved a record keeps its lock alive while it is
+     * open, and gives it up when the user leaves. Without the release, a
+     * record stays locked for the full TTL after somebody simply navigates
+     * away — and a laboratory that meets that a few times learns to break
+     * locks reflexively, which is how a control stops being one.
+     *
+     * The release uses sendBeacon because it is the only request the browser
+     * reliably delivers from a page that is going away.
+     */
+    function initRecordLock() {
+        var node = document.getElementById("dx-lock-config");
+        if (!node) { return; }
+
+        var config;
+        try { config = JSON.parse(node.textContent); } catch (error) { return; }
+        if (!config.held) { return; }
+
+        var indicator = document.querySelector("[data-lock-held]");
+        if (indicator) { indicator.hidden = false; }
+
+        var token = getCookie("csrftoken");
+        var body = function () {
+            var data = new FormData();
+            data.append("entity_type", config.entityType);
+            data.append("entity_id", config.entityId);
+            data.append("csrfmiddlewaretoken", token);
+            return data;
+        };
+
+        /* Refresh well inside the server's TTL so a slow typist never loses
+         * the lock mid-entry. */
+        var timer = window.setInterval(function () {
+            fetch(config.heartbeatUrl, {
+                method: "POST", body: body(), credentials: "same-origin",
+                headers: { "X-CSRFToken": token }
+            }).then(function (response) {
+                if (response.status === 409) {
+                    /* Expired and taken, or broken by a manager. Say so rather
+                     * than letting the next save fail with no explanation. */
+                    window.clearInterval(timer);
+                    announceLockLoss(response);
+                }
+            }).catch(function () { /* transient; the next tick retries */ });
+        }, 120000);
+
+        var released = false;
+        var release = function () {
+            if (released) { return; }
+            released = true;
+            window.clearInterval(timer);
+            if (navigator.sendBeacon) {
+                navigator.sendBeacon(config.releaseUrl, body());
+            }
+        };
+
+        /* pagehide covers navigation, tab close and the bfcache; visibility
+         * alone would release the lock when someone glances at another tab. */
+        window.addEventListener("pagehide", release);
+
+        /* A successful save releases server-side, so do not fight it. */
+        document.querySelectorAll("form").forEach(function (form) {
+            form.addEventListener("submit", function () { released = true; });
+        });
+    }
+
+    function announceLockLoss(response) {
+        response.json().then(function (data) {
+            var banner = document.createElement("div");
+            banner.className = "alert alert-error no-print";
+            banner.textContent = data.holder
+                ? "This record is now open by " + data.holder +
+                  ". Your changes will not be saved — reload before continuing."
+                : "Your hold on this record has been released. Reload before continuing.";
+            var content = document.querySelector(".content");
+            if (content) { content.insertBefore(banner, content.firstChild); }
+        }).catch(function () { /* nothing useful to say */ });
+    }
+
+    function getCookie(name) {
+        var match = document.cookie.match(new RegExp("(^| )" + name + "=([^;]+)"));
+        return match ? decodeURIComponent(match[2]) : "";
+    }
+
     function start() {
+        initRecordLock();
         initResultEntry();
         initSearchShortcut();
         initBatchSelection();

@@ -203,6 +203,52 @@ class DxListView(RoleRequiredMixin, ListView):
         return context
 
 
+class RecordLockMixin:
+    """Refuse an edit screen while somebody else has the record open.
+
+    Set ``lock_entity_type`` to the model label the lock is keyed on. The lock
+    is taken on GET, so arriving at the form reserves the record, and checked
+    again on POST, because the lock may have expired or been broken while the
+    form sat open.
+
+    A blocked user is shown the form read-only with an explanation rather than
+    being bounced: "Jane has this open" is information, and a redirect to a
+    list screen with a red banner is not.
+    """
+
+    lock_entity_type: str | None = None
+
+    def dispatch(self, request, *args, **kwargs):
+        self.lock_state = None
+        if self.lock_entity_type and request.user.is_authenticated:
+            from apps.accounts import locking
+
+            self.object = self.get_object()
+            self.lock_state = locking.acquire(
+                self.lock_entity_type, self.object.pk, request.user
+            )
+            if request.method == "POST" and not self.lock_state.editable:
+                messages.error(request, self.lock_state.message)
+                return redirect(request.path)
+        return super().dispatch(request, *args, **kwargs)
+
+    def get_context_data(self, **kwargs):
+        context = super().get_context_data(**kwargs)
+        context["lock"] = self.lock_state
+        context["lock_entity_type"] = self.lock_entity_type
+        context["lock_entity_id"] = str(self.object.pk) if getattr(self, "object", None) else ""
+        return context
+
+    def form_valid(self, form):
+        response = super().form_valid(form)
+        # The edit is committed; do not hold the record while walking away.
+        if self.lock_entity_type:
+            from apps.accounts import locking
+
+            locking.release(self.lock_entity_type, self.object.pk, self.request.user)
+        return response
+
+
 class DxFormMixin(RoleRequiredMixin, ControlViolationMixin):
     template_name = "generic/form.html"
     page_title = ""
@@ -286,6 +332,7 @@ class CrudResource:
         on_update=None,
         app_namespace: str | None = None,
         deletable: bool = False,
+        lock_entity_type: str | None = None,
     ):
         self.name = name
         self.model = model
@@ -308,6 +355,10 @@ class CrudResource:
         self.on_update = on_update
         self.namespace = app_namespace or model._meta.app_label
         self.deletable = deletable
+        #: When set, the update screen takes a pessimistic record lock. Only
+        #: the update screen: creating a record nobody else can name yet
+        #: cannot collide with anything.
+        self.lock_entity_type = lock_entity_type
 
     # ── URL names ────────────────────────────────────────────────────────────
 
@@ -360,9 +411,13 @@ class CrudResource:
         def form_valid(self, form):
             if hook is not None:
                 hook(self, form)
-            return super(type(self), self).form_valid(form)
+            # Bound to the class created below, not to ``type(self)``. With
+            # ``type(self)`` a subclass of this view — such as one carrying
+            # RecordLockMixin — makes super() resolve back to this same
+            # method, and the first save recurses until the stack runs out.
+            return super(view, self).form_valid(form)
 
-        return type(
+        view = type(
             f"{self.model.__name__}{base.__name__.replace('Dx', '')}",
             (base,),
             {
@@ -375,12 +430,20 @@ class CrudResource:
                 "form_valid": form_valid,
             },
         )
+        return view
 
     def create_view(self):
         return self._form_view(DxCreateView, self.on_create, "Created.")
 
     def update_view(self):
-        return self._form_view(DxUpdateView, self.on_update, "Updated.")
+        view = self._form_view(DxUpdateView, self.on_update, "Updated.")
+        if self.lock_entity_type:
+            view = type(
+                view.__name__,
+                (RecordLockMixin, view),
+                {"lock_entity_type": self.lock_entity_type},
+            )
+        return view
 
     def delete_view(self):
         resource = self

@@ -33,7 +33,23 @@ class DxLoginView(LoginView):
 
 
 class DxLogoutView(LogoutView):
+    """Sign out, releasing anything the user still has open.
+
+    Without this, a scientist who finishes a shift with a result-entry screen
+    open leaves the order locked for the next fifteen minutes, and the night
+    shift learns to break locks as a matter of routine — which is how a
+    control stops being one.
+    """
+
     next_page = reverse_lazy("accounts:login")
+
+    def dispatch(self, request, *args, **kwargs):
+        user = getattr(request, "user", None)
+        if user is not None and user.is_authenticated:
+            from apps.accounts import locking
+
+            locking.release_all_for(user)
+        return super().dispatch(request, *args, **kwargs)
 
 
 # ── Users ────────────────────────────────────────────────────────────────────

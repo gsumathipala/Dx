@@ -2,6 +2,35 @@
 
 All notable changes to the Dx Clinical LIS project will be documented in this file.
 
+## [v3.1.1] - 2026-09-16
+### Enforced record locking
+
+### Added
+- **Pessimistic record locking.** `accounts.RecordLock` existed as a model that
+  nothing used. It is now enforced: opening a patient record or a result-entry
+  screen reserves it, and a second user gets a read-only view naming the holder
+  rather than a form that fails on submit. Optimistic concurrency is the wrong
+  answer here — by the time the second person is told, they have typed forty
+  analytes.
+- Locks release on leaving the screen (`navigator.sendBeacon`, which survives
+  the page unloading), on save, on sign-out and on idle auto-logoff; they are
+  kept alive by a heartbeat while the screen is open, and expire after
+  `RECORD_LOCK_TTL_SECONDS` (default 900) so a closed laptop never strands a
+  record.
+- **Settings → Record locks** for managers, administrators and the installer.
+  Breaking a lock requires a reason and is written to the audit trail against
+  the record. The installer sees the record *type* and the holder but not which
+  record — an accession number is an identifier, and unsticking the system does
+  not require knowing whose record it is.
+- `CrudResource(lock_entity_type=...)` applies locking to a generated edit
+  screen; `RecordLockMixin` does the same for a hand-written one.
+- 33 tests.
+
+### Fixed
+- **`CrudResource._form_view` used `super(type(self), self)`**, which recurses
+  infinitely as soon as the generated view is subclassed. Latent until
+  `RecordLockMixin` subclassed one; now bound to the created class.
+
 ## [v3.1.0] - 2026-09-16
 ### Decision rules, autoverification, integrations and privacy rights
 

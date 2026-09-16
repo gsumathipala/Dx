@@ -39,6 +39,12 @@ laboratory has not separately approved. The signature is attributable to the
 *rule*, at the version that fired, and the report says "no human review". Any
 laboratory user can override it with a recorded reason.
 
+**Concurrency control** — opening a patient record or a result-entry screen
+takes a pessimistic lock. A second user gets a read-only view naming the
+holder, not a form that fails on submit. Locks release on leaving, saving or
+signing out, expire on a TTL so a closed laptop never strands a record, and can
+be broken by a manager with a reason that is recorded in the audit trail.
+
 **Exception queue** — one screen for everything needing a person: rejected
 specimens, unacknowledged criticals past escalation, breached turnaround,
 failed QC, silent interfaces, refused inbound messages, failing integrations,
@@ -240,6 +246,7 @@ Set in `.env`; see `.env.example` for the full list.
 | `PASSWORD_EXPIRY_DAYS` | Password ageing | `90` |
 | `ACCOUNT_LOCKOUT_THRESHOLD` | Failed attempts before lockout | `5` |
 | `IDLE_TIMEOUT_MINUTES` | Automatic sign-out | `20` |
+| `RECORD_LOCK_TTL_SECONDS` | How long a record stays reserved without contact | `900` |
 | `RULES_ALLOW_AUTO_VERIFICATION` | Allow rules to release results without human review | `True` |
 | `INSTRUMENT_INGEST_TOKEN` | Shared secret for the instrument interface, host query and inbound HL7 | — |
 | `SUBJECT_REQUEST_EXPORT_DIR` | Where encrypted GDPR exports are written | `media/subject-requests` |

@@ -419,3 +419,13 @@ input:focus, select:focus, textarea:focus {
     color: var(--text-muted);
 }
 .btn-help:hover { color: var(--accent-dark); border-color: var(--accent); }
+
+/* ── Record locking ──────────────────────────────────────────────────────── */
+.lock-note {
+    font-size: 0.82rem; color: var(--text-muted); margin-bottom: 0.75rem;
+    padding: 0.35rem 0.6rem; border-left: 3px solid var(--accent);
+    background: var(--surface-muted, #f7f8fa);
+}
+.locked-readonly input, .locked-readonly select, .locked-readonly textarea {
+    background: #f3f4f6; color: #6b7280;
+}
