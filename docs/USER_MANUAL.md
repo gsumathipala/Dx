@@ -31,7 +31,9 @@ control satisfies, see [REGULATORY.md](REGULATORY.md).
 13. [Working with other systems](#13-working-with-other-systems)
 14. [Data subject requests](#14-data-subject-requests)
 15. [Maintenance and resetting the system](#15-maintenance-and-resetting-the-system)
-16. [When the system stops you](#16-when-the-system-stops-you)
+16. [Working when the system is down](#16-working-when-the-system-is-down)
+17. [Signing in securely](#17-signing-in-securely)
+18. [When the system stops you](#18-when-the-system-stops-you)
 
 ---
 
@@ -701,7 +703,74 @@ python manage.py create_installer --username installer
 
 ---
 
-## 16. When the system stops you
+## 16. Working when the system is down
+
+The laboratory does not stop, so there is a procedure. It is covered in full in
+the in-application help at **Help → When things go wrong → Working when the
+system is down**; the short version:
+
+1. **Work from the downtime pack.** A self-contained file — no server, no
+   network — holding outstanding orders, each patient's recent results,
+   unacknowledged criticals, and every reference and critical limit. It is
+   regenerated every fifteen minutes and lives somewhere reachable when this
+   server is not. Check its age on **Settings → Downtime and continuity**.
+2. **Telephone critical values as normal.** Note the time, who you spoke to and
+   the read-back — you will document all three afterwards.
+3. **When the system returns, check the audit chain verifies before typing
+   anything.**
+4. **Enter each paper result against the downtime record**, naming *who
+   performed the test and when* — not who is typing. Both are recorded.
+5. **Reconcile only when every paper result is in.** Until then the outage
+   stays on the exception queue.
+
+Entered results are *Resulted*: they still need validating and verifying
+normally. Nothing is waved through because it came from paper.
+
+**Read-only mode** is separate, and used during recovery: the system stays
+reachable and refuses every write, showing the reason. Signing out still works.
+
+**Run a drill once a year**, recorded on the same screen. The most common thing
+a drill uncovers is that nobody knows where the pack is.
+
+---
+
+## 17. Signing in securely
+
+### Two-factor authentication
+
+**My account → Two-factor.** Required for roles that can change who else has
+access; available to everyone.
+
+Add the key to any authenticator app, prove it works with one code, and save
+the ten recovery codes you are given — they are shown once, each works once,
+and they are how you get back in if you lose your phone.
+
+Without them, getting back in means an administrator switching your second
+factor off, and *"I've lost my phone, can you disable my MFA"* is a telephone
+call an attacker can make too.
+
+Signing in then takes two steps. **You are not signed in between them** — your
+password being accepted does not give you a session.
+
+If a code is refused, it is almost always your phone's clock. Turn on automatic
+time setting.
+
+### Single sign-on
+
+If your organisation has connected its identity provider, the sign-in page
+offers it. Your password and second factor become your organisation's.
+
+Two things worth knowing:
+
+* **The installer account never uses single sign-on.** It signs in locally on
+  purpose — it is the account you need when single sign-on is what has broken.
+* **What you may do here is decided here.** Your provider says who you are;
+  your role comes from a map an administrator maintains. A group renamed in the
+  directory does not silently change what you can do to patient records.
+
+---
+
+## 18. When the system stops you
 
 Refusals are deliberate and each has a reason. The message tells you which.
 
@@ -724,6 +793,10 @@ Refusals are deliberate and each has a reason. The message tells you which.
 | "A resolution note is required to close an exception" | The queue is a record of what was done | Say what you did |
 | "Verify the requester's identity before erasing anything" | Art. 12(6) | Record what you checked |
 | "This client lacks the scope" | The API credential was not granted that resource | An administrator widens the scope, or the integration stops asking |
+| "The system is in read-only mode" | A restore or recovery is in progress | Record on paper against the downtime record; an administrator lifts it |
+| "Name the person who performed the test" | A backloaded result must identify the performer, not the typist | Put the name from the worksheet |
+| "That code was not accepted" | Wrong code, or your phone's clock has drifted | Turn on automatic time setting; use a recovery code if the device is lost |
+| "The installer account cannot sign in through single sign-on" | It is the break-glass account | Use its local password |
 
 If a control is stopping work that you believe is correct, raise it with your
 laboratory manager. The switches exist, they are visible on the compliance

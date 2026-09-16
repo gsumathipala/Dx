@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}Remove two-factor authentication{% endblock %}
+{% block page_title %}Remove two-factor authentication{% endblock %}
+{% block content %}
+<div class="alert alert-warning">
+    Your password will become the only thing protecting your account.
+</div>
+<div class="card" style="max-width:520px">
+    <div class="card-body">
+        <p class="muted">
+            Both a password and a current code are required. Somebody who has
+            stolen your session should not be able to quietly turn this off —
+            which would otherwise be the first thing they did.
+        </p>
+        <form method="post">
+            {% csrf_token %}
+            {% include "partials/form.html" %}
+            <div class="btn-group" style="margin-top:8px">
+                <button class="btn btn-danger" type="submit">Remove it</button>
+                <a class="btn" href="{% url 'accounts:mfa_status' %}">Keep it on</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

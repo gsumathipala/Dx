@@ -43,6 +43,7 @@ def _installer_workspace(user):
     """The installer commissions and maintains; it runs no laboratory work."""
     return [
         NavItem("Maintenance", "operations:backup", "wrench"),
+        NavItem("Downtime", "operations:downtime_list", "power-off"),
         NavItem("Users", "accounts:user_list", "users"),
         NavItem("Departments", "accounts:department_list", "layers"),
         NavItem("Instrument interfaces", "interop:interface_list", "plug"),
@@ -50,6 +51,7 @@ def _installer_workspace(user):
         NavItem("Configuration", "operations:setting_list", "settings"),
         NavItem("Settings index", "operations:settings_index", "list"),
         NavItem("My password", "compliance:password_change", "key"),
+        NavItem("Two-factor", "accounts:mfa_status", "shield"),
         NavItem("Help", "help:index", "book-open"),
     ]
 
@@ -98,6 +100,7 @@ def _oversight(user):
         NavItem("Turnaround", "operations:tat", "clock", user.is_lab_staff),
         NavItem("Settings", "operations:settings_index", "settings", user.is_manager),
         NavItem("My password", "compliance:password_change", "key"),
+        NavItem("Two-factor", "accounts:mfa_status", "shield"),
         NavItem("Help", "help:index", "book-open"),
     ]
 
@@ -285,6 +288,11 @@ def settings_index(user):
                      "Banners shown across the application.", is_manager, "banner notice", system=True),
         SettingsItem("Configuration", "operations:setting_list", "System",
                      "Key/value settings.", is_manager, "config", system=True),
+        SettingsItem("Downtime and continuity", "operations:downtime_list", "System",
+                     "Declaring an outage, the downtime pack, read-only mode and "
+                     "entering paper results afterwards.", is_admin,
+                     "outage contingency offline paper recovery business continuity",
+                     system=True),
         SettingsItem("Backup and maintenance", "operations:backup", "System",
                      "Operational procedures and audit health.", is_admin, "restore pg_dump", system=True),
         SettingsItem("Patient data administration", "patients:patient_admin_list", "System",

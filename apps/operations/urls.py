@@ -2,7 +2,7 @@ from django.urls import path
 
 from apps.common.views import CrudResource
 from apps.operations import forms as ops_forms
-from apps.operations import exception_views, views
+from apps.operations import continuity_views, exception_views, views
 from apps.operations.models import (
     RoutingAssignment, RoutingRule, StorageLocation, SystemAlert, SystemSetting,
     TatThreshold, Worksheet, Workstation,
@@ -103,6 +103,18 @@ urlpatterns = [
     path("exceptions/<str:pk>/resolve/", exception_views.exception_resolve,
          name="exception_resolve"),
     path("backup/", views.backup, name="backup"),
+
+    # Business continuity. Specific paths before "<pk>/".
+    path("downtime/", continuity_views.DowntimeListView.as_view(), name="downtime_list"),
+    path("downtime/declare/", continuity_views.declare, name="downtime_declare"),
+    path("downtime/read-only/", continuity_views.toggle_read_only, name="downtime_read_only"),
+    path("downtime/pack/", continuity_views.generate_pack, name="downtime_generate_pack"),
+    path("downtime/pack/<str:pk>/", continuity_views.download_pack, name="downtime_download_pack"),
+    path("downtime/<str:pk>/", continuity_views.downtime_detail, name="downtime_detail"),
+    path("downtime/<str:pk>/end/", continuity_views.downtime_end, name="downtime_end"),
+    path("downtime/<str:pk>/reconcile/", continuity_views.downtime_reconcile,
+         name="downtime_reconcile"),
+    path("downtime/<str:pk>/backload/", continuity_views.backload, name="downtime_backload"),
 
     # Listed before the storage-location resource so "storage/" is not shadowed.
     path("storage/", views.storage, name="storage"),

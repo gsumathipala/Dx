@@ -35,6 +35,14 @@
             <button class="btn btn-primary" type="submit" style="width:100%">Sign in</button>
         </form>
 
+        {% if sso_enabled %}
+            <div class="login-divider"><span>or</span></div>
+            <a class="btn" style="width:100%;text-align:center"
+               href="{% url 'accounts:sso_begin' %}{% if next %}?next={{ next|urlencode }}{% endif %}">
+                Sign in with {{ sso_provider }}
+            </a>
+        {% endif %}
+
         <p class="muted" style="font-size:11px;margin:18px 0 0;line-height:1.5">
             Access is restricted to authorised personnel. All activity is recorded
             in an immutable audit trail. Accounts lock after repeated failed

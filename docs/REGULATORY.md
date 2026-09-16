@@ -363,6 +363,61 @@ merely noticed.
 
 ---
 
+## 23. Business continuity — CLIA §493.1291, CAP GEN, ISO 15189 §8.7
+
+A laboratory does not stop when the LIS does. Every accreditation body asks to
+see the downtime procedure, in writing, tested.
+
+| Control | Mechanism |
+| --- | --- |
+| A record of every outage | `DowntimeEvent`, including drills |
+| Working without the system | A self-contained downtime pack: outstanding orders, recent verified results, unacknowledged criticals, reference and critical limits, requester contacts |
+| Results produced on paper reach the record | Backloading, recording the performer and the time of production separately from the person keying it in |
+| The report identifies who performed the examination (§493.1291(c)) | `Result.entered_by` carries the performer, the audit trail carries the typist |
+| Nothing is waved through | Backloaded results arrive as *Resulted* and pass technical validation and clinical verification normally |
+| Nothing is forgotten | An ended outage stays on the exception queue until reconciled |
+| Safe recovery | Read-only mode: the application refuses every write while a restore runs |
+
+The pack is deliberately **unencrypted by default**, which is the one place
+this system departs from "everything leaving the database is encrypted". A pack
+that needs this application to open it is useless when this application is what
+is missing. The honest control is an encrypted volume the laboratory
+physically holds.
+
+---
+
+## 24. Identity — 21 CFR Part 11 §11.300, HIPAA §164.312(d)
+
+| Requirement | Mechanism |
+| --- | --- |
+| Unique identification (§11.300(a)) | One account per person; SSO matches on the provider's `sub`, the only claim guaranteed stable |
+| Additional authentication factor | TOTP (RFC 6238), required by default for roles that can change who else has access |
+| Loss management (§11.300(c)) | Single-use recovery codes, stored hashed, so regaining access never requires an administrator to switch the control off |
+| Authority checks (§11.10(g)) | Roles are assigned locally from an explicit claim map with a refusing default; a directory group rename cannot grant clinical authority |
+
+**The installer account never authenticates through SSO.** It is the
+break-glass account for the case where the identity provider is what has
+failed, and an account that depends on the thing it exists to recover from is
+not a break-glass account.
+
+A second factor is still required after SSO unless the provider asserts one was
+performed (`amr`). "SSO is enabled" is not the same claim as "MFA was
+performed".
+
+---
+
+## 25. Specimen identification — Joint Commission NPSG 01.01.01
+
+Labels carry **two patient identifiers** (name, MRN and date of birth) plus the
+accession number as text and Code 128 barcode. The accession number is not one
+of the two: it identifies the specimen, not the person.
+
+Nothing is truncated to fit. Reprinting is unrestricted and audited, because a
+laboratory that cannot reprint will hand-write, and a hand-written tube is the
+pre-analytical error the barcode exists to remove.
+
+---
+
 ## What this system does *not* do
 
 Stated plainly, because an overstated claim is worse than a gap:
@@ -373,7 +428,28 @@ Stated plainly, because an overstated claim is worse than a gap:
   a patient-facing portal.
 * Blood bank / transfusion medicine (`21 CFR 606`, AABB) is **not** implemented;
   the retention class exists but the workflow does not.
-* Digital pathology image management is out of scope.
+* Digital pathology image management is out of scope, as is anatomic pathology
+  **synoptic reporting** (CAP eCC), case sign-out workflow and consultations.
+  Blocks and slides are tracked; a hospital AP department could not run on it.
+* **Molecular and next-generation sequencing** are out of scope: no pipeline
+  integration, no variant interpretation.
+* **Point-of-care device management** is not implemented. `POCT1-A` appears as
+  a protocol choice with nothing behind it.
+* **Send-out and reference laboratory management** is not implemented.
+* **Revenue cycle** stops at invoices: no 837/835 EDI, eligibility checking,
+  medical necessity (LCD/NCD) or ABN generation.
+* There is **no patient portal**, and no result-embargo handling for the 21st
+  Century Cures Act information-blocking rules.
+* **Accessibility has not been audited.** It very likely does not meet
+  WCAG 2.1 AA.
+* The interface is **English only**. `USE_I18N` is on; nothing is translated.
+* It is **single-site**. There is no facility or tenant concept, no enterprise
+  master patient index and no cross-site master file harmonisation. A network
+  of laboratories would run separate instances.
+* **High availability and disaster recovery are deployment concerns.** The
+  application is stateless behind the database and can run several instances,
+  but clustering, failover, replication and RPO/RTO targets are not configured
+  here and no numbers are claimed.
 * It does **not** hold a SNOMED CT or full ICD-10 licence. The ICD-10 table is
   a lookup populated by the laboratory, not a terminology server.
 * Database-level encryption at rest is a **deployment** responsibility —

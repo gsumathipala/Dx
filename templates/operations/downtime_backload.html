@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}Enter paper results{% endblock %}
+{% block page_title %}Enter paper results — {{ event.reference }}{% endblock %}
+{% block page_subtitle %}
+<div class="subtitle">
+    {{ event.backloaded_results }} result{{ event.backloaded_results|pluralize }} entered so far.
+</div>
+{% endblock %}
+{% block page_actions %}
+    <a class="btn" href="{% url 'operations:downtime_detail' event.pk %}">The outage</a>
+{% endblock %}
+
+{% block content %}
+<div class="callout">
+    <strong>Two people are recorded here, not one.</strong>
+    The report must name whoever <em>performed</em> the test — CLIA
+    §493.1291(c) — and after an outage that is rarely the person typing it in.
+    The result is stored with the time it was produced, so turnaround figures
+    describe what happened to the patient rather than what happened to the
+    keyboard.
+    <br>
+    Entered results are <strong>Resulted</strong>. They still need technical
+    validation and clinical verification in the normal way, by someone
+    competent, with QC in control.
+</div>
+
+<div class="card" style="max-width:760px">
+    <div class="card-body">
+        <form method="post">
+            {% csrf_token %}
+            {% include "partials/form.html" %}
+            <div class="btn-group" style="margin-top:8px">
+                <button class="btn btn-primary" type="submit">Enter these results</button>
+                <a class="btn" href="{% url 'operations:downtime_detail' event.pk %}">Done</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

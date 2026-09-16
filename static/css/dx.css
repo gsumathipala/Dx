@@ -429,3 +429,12 @@ input:focus, select:focus, textarea:focus {
 .locked-readonly input, .locked-readonly select, .locked-readonly textarea {
     background: #f3f4f6; color: #6b7280;
 }
+
+/* ── Sign-in alternatives ─────────────────────────────────────────────────── */
+.login-divider {
+    display: flex; align-items: center; gap: 0.6rem;
+    margin: 1rem 0; color: var(--text-muted); font-size: 0.78rem;
+}
+.login-divider::before, .login-divider::after {
+    content: ""; flex: 1; height: 1px; background: var(--border, #ddd);
+}

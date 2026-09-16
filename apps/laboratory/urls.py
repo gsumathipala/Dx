@@ -57,6 +57,7 @@ urlpatterns = [
     path("results/", views.results_worklist, name="results"),
     path("results/verify-batch/", views.verify_batch_view, name="verify_batch"),
     path("results/<str:pk>/", views.result_entry, name="result_entry"),
+    path("labels/<str:pk>/", views.print_labels, name="print_labels"),
 
     *phlebotomy.urls("phlebotomy/"),
     *tests.urls("config/tests/"),

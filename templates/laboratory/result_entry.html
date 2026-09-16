@@ -10,6 +10,8 @@
 {% endblock %}
 {% block page_actions %}
     <a class="btn" href="{% url 'patients:detail' order.patient.pk %}">Patient record</a>
+    <a class="btn" href="{% url 'laboratory:print_labels' order.pk %}" target="_blank"
+       rel="noopener">Labels</a>
     <a class="btn" href="{% url 'audit:entity_history' entity_type order.pk %}">History</a>
 {% endblock %}
 

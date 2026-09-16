@@ -5,10 +5,16 @@ from django.contrib import admin
 from django.urls import include, path
 
 from apps.interop.views import host_query, ingest, inbound_hl7
+from apps.operations.observability import metrics, readyz
 from apps.operations.views import healthz
 
 urlpatterns = [
+    # Liveness, readiness and metrics. Liveness asks "should you restart me";
+    # readiness asks "should you send me traffic". They are not the same
+    # question and conflating them causes restart loops under load.
     path("healthz/", healthz, name="healthz"),
+    path("readyz/", readyz, name="readyz"),
+    path("metrics", metrics, name="metrics"),
     # Service-to-service endpoints: bearer-token authenticated, no session.
     # These serve the instrument middleware and the hospital's integration
     # engine, neither of which has a browser session to present.

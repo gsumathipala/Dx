@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Two-factor authentication{% endblock %}
+{% block page_title %}Two-factor authentication{% endblock %}
+{% block content %}
+{% if state.enrolled %}
+    <div class="alert alert-info">
+        <strong>On.</strong> You will be asked for a code from your
+        authenticator each time you sign in.
+        {% if state.last_used_at %}Last used {{ state.last_used_at|date:"j M Y, H:i" }}.{% endif %}
+    </div>
+{% elif state.required %}
+    <div class="alert alert-error">
+        <strong>Required for your role, and not yet set up.</strong>
+        Your role can change who else has access to patient records, which makes
+        your account a far more valuable target than most.
+        <a href="{% url 'accounts:mfa_setup' %}">Set it up now</a>.
+    </div>
+{% else %}
+    <div class="alert alert-warning">
+        <strong>Off.</strong> Your password is the only thing protecting your
+        account. <a href="{% url 'accounts:mfa_setup' %}">Turn it on</a>.
+    </div>
+{% endif %}
+
+<div class="card" style="max-width:700px">
+    <div class="card-header"><h3>What this protects against</h3></div>
+    <div class="card-body">
+        <p>
+            A stolen or phished password, which is the attack laboratories
+            actually see. It does <em>not</em> protect a workstation somebody
+            has walked away from, or a session stolen after you signed in —
+            the idle timeout and signing out deliberately are what cover those.
+        </p>
+    </div>
+</div>
+
+{% if state.enrolled %}
+<div class="card" style="max-width:700px">
+    <div class="card-header"><h3>Recovery codes</h3></div>
+    <div class="card-body">
+        <p>
+            {{ state.recovery_codes_left }} unused code{{ state.recovery_codes_left|pluralize }}
+            remaining. Each works once, and they are the way back in if you lose
+            your phone — without them, getting back in means an administrator
+            switching off your second factor, which is a social-engineering
+            route straight through the control.
+        </p>
+        {% if state.recovery_codes_left < 3 %}
+            <p class="alert alert-warning">
+                You are running low. Generate a fresh set — it replaces all of them.
+            </p>
+        {% endif %}
+        <form method="post" action="{% url 'accounts:mfa_recovery' %}">
+            {% csrf_token %}
+            <button class="btn" type="submit">Generate a new set</button>
+        </form>
+    </div>
+</div>
+
+{% if not state.required %}
+<div class="card" style="max-width:700px">
+    <div class="card-header"><h3>Turn it off</h3></div>
+    <div class="card-body">
+        <a class="btn btn-danger" href="{% url 'accounts:mfa_disable' %}">
+            Remove two-factor authentication
+        </a>
+    </div>
+</div>
+{% endif %}
+{% endif %}
+{% endblock %}

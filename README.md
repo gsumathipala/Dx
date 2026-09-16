@@ -39,6 +39,27 @@ laboratory has not separately approved. The signature is attributable to the
 *rule*, at the version that fired, and the report says "no human review". Any
 laboratory user can override it with a recorded reason.
 
+**Enterprise identity** — OpenID Connect single sign-on (Authorization Code
+with PKCE, ID tokens verified against the issuer's JWKS) and TOTP two-factor
+authentication implemented against RFC 6238, with recovery codes. Required by
+default for the roles that can change who else has access. The installer
+account is never authenticated through SSO — it is the break-glass account for
+when SSO is what has failed.
+
+**Business continuity** — declared downtime records, a self-contained downtime
+pack readable with no server or network, read-only mode for recovery, and
+backloading that records *who performed the test* separately from who typed it
+in. An outage is closed when the paper results are in, not when the server
+returns.
+
+**Specimen labels** — Code 128 barcodes rendered as inline SVG, ZPL for thermal
+printers, and a printable sheet for an ordinary one. Two patient identifiers on
+every label, per NPSG 01.01.01.
+
+**Observability** — Prometheus metrics (counts and states, never identifiers),
+readiness distinct from liveness, and optional JSON logging carrying the
+request id so log lines join to the audit trail.
+
 **Concurrency control** — opening a patient record or a result-entry screen
 takes a pessimistic lock. A second user gets a read-only view naming the
 holder, not a form that fails on submit. Locks release on leaving, saving or
@@ -164,6 +185,10 @@ python manage.py deliver_webhooks --forever --interval 15
 
 # Raise exception queue items for conditions nobody reported
 python manage.py sweep_exceptions --forever --interval 60
+
+# Refresh the downtime pack. A pack generated three weeks ago is worse than
+# none, because people trust it.
+python manage.py downtime_pack
 ```
 
 Both are idempotent and safe to run from cron instead, without `--forever`.
@@ -199,7 +224,8 @@ apps/
   quality/           QC, Westgard rules, equipment, rejection criteria
   inventory/         Reagents, stock movements, manufacturing
   specialty/         Histopathology and microbiology
-  operations/        Dashboard, KPIs, storage, custody, routing, settings
+  operations/        Dashboard, KPIs, storage, custody, routing, settings,
+                     exception queue, downtime and continuity, observability
   billing/           Catalogue and invoicing
   reporting/         Reports, controlled documents, distribution
   interop/           FHIR, HL7 (in and out), LOINC, ICD-10, instrument ingest,
@@ -247,6 +273,10 @@ Set in `.env`; see `.env.example` for the full list.
 | `ACCOUNT_LOCKOUT_THRESHOLD` | Failed attempts before lockout | `5` |
 | `IDLE_TIMEOUT_MINUTES` | Automatic sign-out | `20` |
 | `RECORD_LOCK_TTL_SECONDS` | How long a record stays reserved without contact | `900` |
+| `MFA_ENABLED` / `MFA_REQUIRED_ROLES` | Second factor, and who must have one | `True` / `installer,admin` |
+| `OIDC_ENABLED` | Single sign-on | `False` |
+| `METRICS_TOKEN` | Bearer token for `/metrics` | unset |
+| `DOWNTIME_PACK_DIR` | Where downtime packs are written | `media/downtime` |
 | `RULES_ALLOW_AUTO_VERIFICATION` | Allow rules to release results without human review | `True` |
 | `INSTRUMENT_INGEST_TOKEN` | Shared secret for the instrument interface, host query and inbound HL7 | — |
 | `SUBJECT_REQUEST_EXPORT_DIR` | Where encrypted GDPR exports are written | `media/subject-requests` |

@@ -1,7 +1,7 @@
 from django.urls import path
 
 from apps.accounts import forms as account_forms
-from apps.accounts import lock_views, views
+from apps.accounts import lock_views, mfa_views, sso_views, views
 from apps.accounts.models import Department, UserCompetency
 from apps.common.views import CrudResource
 from django.contrib.auth import get_user_model
@@ -45,6 +45,17 @@ competency = CrudResource(
 urlpatterns = [
     path("login/", views.DxLoginView.as_view(), name="login"),
     path("logout/", views.DxLogoutView.as_view(), name="logout"),
+
+    # Single sign-on.
+    path("sso/", sso_views.begin, name="sso_begin"),
+    path("sso/callback/", sso_views.callback, name="sso_callback"),
+
+    # Two-factor authentication.
+    path("mfa/", mfa_views.status, name="mfa_status"),
+    path("mfa/challenge/", mfa_views.challenge, name="mfa_challenge"),
+    path("mfa/setup/", mfa_views.setup, name="mfa_setup"),
+    path("mfa/disable/", mfa_views.disable, name="mfa_disable"),
+    path("mfa/recovery/", mfa_views.regenerate_recovery_codes, name="mfa_recovery"),
 
     # Record locking: two endpoints the open page calls, and the screen a
     # manager uses to break a lock somebody left behind.

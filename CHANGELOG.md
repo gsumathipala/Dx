@@ -2,6 +2,90 @@
 
 All notable changes to the Dx Clinical LIS project will be documented in this file.
 
+## [v3.2.0] - 2026-09-16
+### Business continuity, enterprise identity, labels and observability
+
+Acts on the enterprise gap analysis, in the order of what blocks a hospital
+go-live. Deliberately **not** included: multi-tenancy, blood bank, anatomic
+pathology synoptic reporting and molecular — each is a project rather than a
+feature, and the reasoning is in `docs/REGULATORY.md`.
+
+### Added — business continuity (the largest gap)
+
+- **Downtime records.** `DowntimeEvent` with planned, unplanned and drill
+  kinds. The outage can be backdated to when the system was actually lost
+  rather than when somebody logged it, because turnaround figures and the
+  reconciliation window both depend on the real time.
+- **The downtime pack** — a self-contained HTML file with no stylesheet,
+  script, image or network reference, holding outstanding orders, each
+  patient's recent verified results, unacknowledged critical values, every
+  reference interval and critical limit, and requester telephone numbers. It
+  opens from a USB stick on a machine with nothing else working.
+  `manage.py downtime_pack`, intended every fifteen minutes; the screen warns
+  when the newest pack is over twelve hours old.
+- **Backloading** that records **two** people: the person who performed the
+  test and wrote the number down, and the person keying it in afterwards. The
+  result carries the time it was *produced*. CLIA §493.1291(c) requires the
+  report to identify the performer, and after an outage that is rarely the
+  typist. Backloaded results arrive as *Resulted* and go through validation
+  and verification like anything else.
+- **Ending an outage does not close it.** It stays on the exception queue
+  until the paper results are reconciled — which is what stops a handful of
+  handwritten results being quietly forgotten.
+- **Read-only mode** for recovery: the application stays reachable and refuses
+  every write with the reason, while signing out keeps working.
+
+### Added — enterprise identity
+
+- **OpenID Connect single sign-on.** Authorization Code flow with PKCE,
+  `state` and `nonce`, discovery, and ID token verification against the
+  issuer's JWKS — signature, algorithm allow-list, issuer, audience, expiry
+  and nonce all checked, because each has been a real-world OIDC
+  vulnerability. Roles come from an explicit claim map with a refusing
+  default: a directory group rename must not silently grant clinical
+  authority. The installer account is never authenticated through SSO.
+- **TOTP two-factor authentication** (RFC 6238), implemented against the
+  specification and tested against its published vectors. Recovery codes,
+  stored hashed and single-use. Required by default for the roles that can
+  change who else has access. `login()` is deliberately not called until the
+  code verifies — a half-finished sign-in that already carried a session
+  would be one factor wearing the costume of two.
+
+### Added — specimen labels
+
+- **Code 128 encoder** rendering inline SVG, with subset C for digit runs so
+  an accession number fits a 25mm tube label. A `decode_modules` counterpart
+  exists so the encoder is verifiable — an encoder nobody can check is one
+  that silently prints labels no scanner reads.
+- **ZPL** for thermal printers, with ZPL control characters neutralised: a
+  patient called `^Smith` would otherwise emit a field command mid-label.
+- A printable HTML sheet for sites with no thermal printer. Two patient
+  identifiers on every label per NPSG 01.01.01; reprinting is unrestricted and
+  recorded, because a laboratory that cannot reprint will hand-write.
+
+### Added — observability
+
+- **`/metrics`** in Prometheus text exposition: audit recorder state and queue
+  depth, orders by status, open exceptions by severity, pending critical
+  values, stale interfaces, webhook backlog, read-only mode, unreconciled
+  downtime and downtime pack age. Counts and states only — never identifiers,
+  which a test asserts.
+- **`/readyz`** distinct from `/healthz`. Liveness asks "should you restart
+  me"; readiness asks "should you send me traffic". Conflating them causes a
+  restart loop under database pressure.
+- Optional **JSON logging** carrying the audit request id, so a log line joins
+  to the audit events from the same request.
+
+### Changed
+- `User.sso_subject` links a local account to an identity provider. Matching
+  prefers it over the username: `sub` is the only claim a provider guarantees
+  is stable, and usernames change when people marry.
+
+### Fixed
+- `decode_modules` read symbol 99 as "switch to subset C" even while already
+  in subset C, where it is the digit pair "99". Found by the round-trip test,
+  which is what it is for.
+
 ## [v3.1.1] - 2026-09-16
 ### Enforced record locking
 

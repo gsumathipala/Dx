@@ -31,6 +31,34 @@ class DxLoginView(LoginView):
 
         return DxLoginForm
 
+    def get_context_data(self, **kwargs):
+        from apps.accounts import sso
+
+        context = super().get_context_data(**kwargs)
+        context["sso_enabled"] = sso.is_enabled()
+        context["sso_provider"] = sso.provider_name()
+        return context
+
+    def form_valid(self, form):
+        """Password accepted — but not necessarily signed in.
+
+        Where a second factor applies, ``login()`` is deliberately not called
+        here. The user has no session until the code is verified; a
+        half-finished sign-in that already carried a session would be one
+        factor wearing the costume of two.
+        """
+        from apps.accounts import mfa
+        from apps.accounts.mfa_views import begin_challenge
+
+        user = form.get_user()
+        if mfa.device_for(user) or mfa.is_required_for(user):
+            begin_challenge(self.request, user)
+            destination = reverse_lazy("accounts:mfa_challenge")
+            next_url = self.request.POST.get("next") or self.request.GET.get("next")
+            return redirect(f"{destination}?next={next_url}" if next_url else destination)
+
+        return super().form_valid(form)
+
 
 class DxLogoutView(LogoutView):
     """Sign out, releasing anything the user still has open.

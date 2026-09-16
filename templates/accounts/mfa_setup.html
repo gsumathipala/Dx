@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Set up two-factor authentication{% endblock %}
+{% block page_title %}Set up two-factor authentication{% endblock %}
+{% block content %}
+{% if required %}
+    <div class="alert alert-warning">
+        A second factor is required for your role. You can carry on using the
+        system meanwhile, but set this up today.
+    </div>
+{% endif %}
+
+<div class="card" style="max-width:700px">
+    <div class="card-header"><h3>1. Add this to your authenticator</h3></div>
+    <div class="card-body">
+        <p>
+            Use any authenticator app — Microsoft Authenticator, Google
+            Authenticator, 1Password, Authy. They all implement the same
+            standard.
+        </p>
+        <p>Enter this key manually:</p>
+        <p class="mono" style="font-size:1.25rem; letter-spacing:0.1em">{{ grouped_secret }}</p>
+        <p class="muted">
+            Or, on the device you are reading this on, open
+            <a href="{{ uri }}">this enrolment link</a> and your authenticator
+            will take the key itself.
+        </p>
+        <p class="muted">
+            Account: <span class="mono">{{ request.user.username }}</span> ·
+            Type: time-based · 6 digits · 30 seconds
+        </p>
+    </div>
+</div>
+
+<div class="card" style="max-width:700px">
+    <div class="card-header"><h3>2. Prove it works</h3></div>
+    <div class="card-body">
+        <p class="muted">
+            Nothing changes about how you sign in until you do this. A secret
+            you failed to scan will not lock you out.
+        </p>
+        <form method="post">
+            {% csrf_token %}
+            {% include "partials/form.html" %}
+            <div class="btn-group" style="margin-top:8px">
+                <button class="btn btn-primary" type="submit">Confirm</button>
+                <a class="btn" href="?reset=1">Start again with a new key</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

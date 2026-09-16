@@ -5,6 +5,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import Paginator
 from django.db.models import Count, Prefetch, Q
+from django.http import HttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse, reverse_lazy
 from django.utils import timezone
@@ -360,3 +361,71 @@ def receiving(request):
 
 
 # ── Configuration: tests, queues, retention ──────────────────────────────────
+
+
+# ── Specimen labels ──────────────────────────────────────────────────────────
+
+
+@login_required
+def print_labels(request, pk):
+    """Labels for an order's specimens, as a printable sheet or as ZPL.
+
+    ``?format=zpl`` returns the raw ZPL for a thermal printer;
+    ``?copies=N`` prints N per specimen, for aliquots and send-outs.
+
+    Reprinting is deliberately unrestricted but recorded. A laboratory that
+    cannot reprint a label will hand-write one, and a hand-written tube is the
+    pre-analytical error the barcode existed to remove — so the control here is
+    the audit record, not a refusal.
+    """
+    from apps.audit.recorder import record
+    from apps.laboratory.labels import Label, html as label_html, zpl_batch
+
+    if request.user.role not in ACCESSIONING_ROLES + (Role.PHLEBOTOMIST,):
+        messages.error(request, "Your role does not permit label printing.")
+        return redirect("operations:dashboard")
+
+    order = get_object_or_404(
+        Order.objects.select_related("patient").prefetch_related("specimens"), pk=pk
+    )
+    try:
+        copies = max(1, min(int(request.GET.get("copies", 1)), 10))
+    except ValueError:
+        copies = 1
+
+    specimens = list(order.specimens.all())
+    if not specimens:
+        # An order accessioned without a specimen row still needs a tube label.
+        labels = [Label(
+            accession_number=order.accession_number,
+            patient_name=order.patient.full_name,
+            mrn=order.patient.mrn,
+            date_of_birth=order.patient.dob.strftime("%d/%m/%Y") if order.patient.dob else "",
+            specimen_type="", container=order.accession_number,
+            collected_at=timezone.now().strftime("%d/%m %H:%M"),
+            priority=order.priority or "",
+            copy_number=index + 1, copies_total=copies,
+        ) for index in range(copies)]
+    else:
+        labels = [
+            Label.for_specimen(specimen, copy_number=index + 1, copies_total=copies)
+            for specimen in specimens
+            for index in range(copies)
+        ]
+
+    record(
+        action=AuditAction.UPDATE,
+        entity_type="laboratory.Order",
+        entity_id=order.pk,
+        entity_label=f"{len(labels)} specimen label(s) printed for {order.accession_number}",
+        reason=request.GET.get("reason") or None,
+    )
+
+    if request.GET.get("format") == "zpl":
+        response = HttpResponse(zpl_batch(labels), content_type="text/plain; charset=utf-8")
+        response["Content-Disposition"] = (
+            f'attachment; filename="{order.accession_number}.zpl"'
+        )
+        return response
+
+    return HttpResponse(label_html(labels))

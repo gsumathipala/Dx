@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Recovery codes{% endblock %}
+{% block page_title %}Your recovery codes{% endblock %}
+{% block content %}
+<div class="alert alert-warning">
+    <strong>Copy these now.</strong> They are stored hashed and cannot be shown
+    again. Print them, or put them in a password manager — not in the same place
+    as your password.
+</div>
+
+{% if first_time %}
+    <div class="alert alert-info">
+        Two-factor authentication is now on for your account.
+    </div>
+{% else %}
+    <div class="alert alert-info">
+        Your previous recovery codes no longer work. These replace them.
+    </div>
+{% endif %}
+
+<div class="card" style="max-width:520px">
+    <div class="card-body">
+        <pre class="mono" style="font-size:1.05rem; line-height:1.9">{% for code in codes %}{{ code }}
+{% endfor %}</pre>
+        <p class="muted">
+            Each works exactly once. When you use one, set up your authenticator
+            again and generate a fresh set.
+        </p>
+        <a class="btn btn-primary" href="{% url 'accounts:mfa_status' %}">I have saved them</a>
+    </div>
+</div>
+{% endblock %}

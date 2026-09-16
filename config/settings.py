@@ -6,6 +6,7 @@ driven by environment variables (see .env.example); a .env file in the project
 root is loaded automatically in development.
 """
 from pathlib import Path
+import json
 import os
 
 from dotenv import load_dotenv
@@ -83,6 +84,11 @@ MIDDLEWARE = [
     "apps.accounts.phi_barrier.PHIBarrierMiddleware",
     # Dx: records PHI access for HIPAA disclosure accounting.
     "apps.compliance.middleware.PHIAccessLogMiddleware",
+    # Dx: refuses every write while the system is in read-only mode. Last, so
+    # a refused write has already been authenticated and attributed — a
+    # rejection during recovery is still something you want to be able to
+    # trace.
+    "apps.operations.readonly.ReadOnlyModeMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -153,6 +159,41 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
+
+# ── Two-factor authentication ────────────────────────────────────────────────
+#
+# TOTP (RFC 6238), implemented in apps/accounts/mfa.py. Required by default for
+# the two roles that can change who else has access: somebody who can create an
+# administrator account is a far more valuable target than somebody who can
+# enter a potassium. Set MFA_REQUIRED_ROLES to widen or narrow it.
+MFA_ENABLED = env_bool("MFA_ENABLED", True)
+MFA_REQUIRED_ROLES = env_list("MFA_REQUIRED_ROLES", "installer,admin")
+
+
+# ── Single sign-on (OpenID Connect) ──────────────────────────────────────────
+#
+# Off unless an issuer and client id are set. Authorization Code flow with
+# PKCE; ID tokens verified against the issuer's JWKS. See apps/accounts/sso.py.
+#
+# The installer account is never authenticated through SSO — it is the
+# break-glass account for the case where SSO itself is what has failed.
+OIDC_ENABLED = env_bool("OIDC_ENABLED", False)
+OIDC_PROVIDER_NAME = os.environ.get("OIDC_PROVIDER_NAME", "your organisation account")
+OIDC_ISSUER = os.environ.get("OIDC_ISSUER", "")
+OIDC_CLIENT_ID = os.environ.get("OIDC_CLIENT_ID", "")
+OIDC_CLIENT_SECRET = os.environ.get("OIDC_CLIENT_SECRET", "")
+OIDC_REDIRECT_URI = os.environ.get("OIDC_REDIRECT_URI", "")
+OIDC_SCOPES = os.environ.get("OIDC_SCOPES", "openid profile email")
+OIDC_USERNAME_CLAIM = os.environ.get("OIDC_USERNAME_CLAIM", "preferred_username")
+OIDC_ROLE_CLAIM = os.environ.get("OIDC_ROLE_CLAIM", "groups")
+# {"directory group": "dx role"}. Anything unmapped falls to OIDC_DEFAULT_ROLE,
+# which is None — meaning refused rather than guessed at.
+OIDC_ROLE_MAP = json.loads(os.environ.get("OIDC_ROLE_MAP", "{}"))
+OIDC_DEFAULT_ROLE = os.environ.get("OIDC_DEFAULT_ROLE") or None
+# Create a local account on first sign-in. Off by default: on a system holding
+# patient records, somebody should decide that a person gets an account.
+OIDC_PROVISION_USERS = env_bool("OIDC_PROVISION_USERS", False)
+
 
 LOGIN_URL = "accounts:login"
 LOGIN_REDIRECT_URL = "operations:dashboard"
@@ -283,6 +324,14 @@ ENFORCE_QC_LOCKOUT = env_bool("ENFORCE_QC_LOCKOUT", True)
 # release immediately — during a QC investigation, say.
 RULES_ALLOW_AUTO_VERIFICATION = env_bool("RULES_ALLOW_AUTO_VERIFICATION", True)
 
+# Where downtime packs are written. This directory holds concentrated patient
+# data in a form deliberately readable without the application — see
+# apps/operations/continuity.py. Put it on an encrypted volume the laboratory
+# physically controls, and make sure it is reachable when the server is not.
+DOWNTIME_PACK_DIR = os.environ.get(
+    "DOWNTIME_PACK_DIR", str(BASE_DIR / "media" / "downtime")
+)
+
 # Where encrypted GDPR subject-access exports are written.
 SUBJECT_REQUEST_EXPORT_DIR = os.environ.get(
     "SUBJECT_REQUEST_EXPORT_DIR", str(BASE_DIR / "media" / "subject-requests")
@@ -293,14 +342,29 @@ ENFORCE_COMPETENCY_GATING = env_bool("ENFORCE_COMPETENCY_GATING", True)
 # Prevent the person who entered a result from verifying it (CLIA self-review).
 ENFORCE_SELF_VERIFICATION_BLOCK = env_bool("ENFORCE_SELF_VERIFICATION_BLOCK", True)
 
+# ── Observability ────────────────────────────────────────────────────────────
+#
+# /metrics is Prometheus text exposition and carries counts and states only,
+# never identifiers. Leave METRICS_TOKEN unset only when the endpoint is bound
+# to an interface the hospital network cannot reach.
+METRICS_TOKEN = os.environ.get("METRICS_TOKEN", "")
+
+#: "json" emits one JSON object per line, including the request id, so a log
+#: line can be joined to the audit events from the same request.
+LOG_FORMAT = os.environ.get("DJANGO_LOG_FORMAT", "text")
+
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
     "formatters": {
         "verbose": {"format": "[{levelname}] {asctime} {name}: {message}", "style": "{"},
+        "json": {"()": "apps.operations.observability.JsonFormatter"},
     },
     "handlers": {
-        "console": {"class": "logging.StreamHandler", "formatter": "verbose"},
+        "console": {
+            "class": "logging.StreamHandler",
+            "formatter": "json" if LOG_FORMAT == "json" else "verbose",
+        },
     },
     "root": {"handlers": ["console"], "level": "INFO"},
     "loggers": {

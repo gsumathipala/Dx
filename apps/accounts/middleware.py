@@ -13,7 +13,15 @@ from django.urls import reverse
 PUBLIC_PATH_PATTERNS = [
     re.compile(r"^/accounts/login/?$"),
     re.compile(r"^/accounts/logout/?$"),
+    # The second factor is presented before login() is called, so these run
+    # with no session by design.
+    re.compile(r"^/accounts/mfa/challenge/?$"),
+    re.compile(r"^/accounts/sso/"),
     re.compile(r"^/healthz/?$"),
+    re.compile(r"^/readyz/?$"),
+    # Metrics carry counts and states, never identifiers. Set METRICS_TOKEN to
+    # require a bearer token when this is not bound to a private interface.
+    re.compile(r"^/metrics/?$"),
     re.compile(r"^/static/"),
     re.compile(r"^/media/"),
     # These authenticate themselves with a bearer token rather than a session,

@@ -67,6 +67,15 @@ class User(AbstractBaseUser, PermissionsMixin):
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
 
+    #: The identity provider's subject identifier, when this account signs in
+    #: through single sign-on. Matched on in preference to the username,
+    #: because `sub` is the only claim a provider guarantees is stable —
+    #: usernames and email addresses change when people marry, and matching on
+    #: those would eventually hand one person another's record.
+    sso_subject = models.CharField(
+        max_length=255, null=True, blank=True, unique=True, editable=False
+    )
+
     USERNAME_FIELD = "username"
     REQUIRED_FIELDS = ["name"]
 
@@ -78,6 +87,10 @@ class User(AbstractBaseUser, PermissionsMixin):
 
     def __str__(self) -> str:
         return f"{self.name} ({self.username})"
+
+    @property
+    def uses_sso(self) -> bool:
+        return bool(self.sso_subject)
 
     def get_full_name(self) -> str:
         return self.name or self.username
@@ -261,3 +274,10 @@ class UserCompetency(IdentifiedModel):
         if self.status == self.Status.SUSPENDED:
             return self.Status.SUSPENDED
         return self.Status.EXPIRED if self.is_expired else self.Status.ACTIVE
+
+
+# The two-factor models live in ``apps.accounts.mfa`` next to the algorithm
+# they serve, and are re-exported here so Django's app registry finds them
+# regardless of import order. A model discovered only because some other module
+# happened to import it is a migration waiting to go missing.
+from apps.accounts.mfa import MfaDevice, MfaRecoveryCode  # noqa: E402,F401

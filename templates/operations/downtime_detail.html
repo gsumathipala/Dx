@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}{{ event.reference }}{% endblock %}
+{% block page_title %}{{ event.reference }} — {{ event.get_kind_display }}{% endblock %}
+{% block page_subtitle %}
+<div class="subtitle">
+    Began {{ event.began_at|date:"j F Y, H:i" }} ·
+    {{ event.duration_hours|floatformat:1 }} hours ·
+    {% if event.is_open %}still open{% elif event.is_reconciled %}reconciled{% else %}ended, awaiting reconciliation{% endif %}
+</div>
+{% endblock %}
+{% block page_actions %}
+    <a class="btn" href="{% url 'operations:downtime_list' %}">All downtime</a>
+    {% if not event.is_reconciled %}
+        <a class="btn btn-primary" href="{% url 'operations:downtime_backload' event.pk %}">Enter paper results</a>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+{% if event.is_open %}
+    <div class="alert alert-warning">
+        <strong>This outage is still open.</strong>
+        Record results on paper. Enter them here once the system is confirmed intact.
+    </div>
+{% elif not event.is_reconciled %}
+    <div class="alert alert-warning">
+        <strong>Ended but not reconciled.</strong>
+        {{ event.backloaded_results }} result{{ event.backloaded_results|pluralize }}
+        entered so far. This stays on the exception queue until you confirm every
+        paper result is in.
+    </div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header"><h3>What happened</h3></div>
+    <div class="card-body">
+        <dl class="detail-grid">
+            <dt>Reason</dt><dd>{{ event.reason|linebreaksbr }}</dd>
+            <dt>Impact</dt><dd>{{ event.impact|default:"—"|linebreaksbr }}</dd>
+            <dt>Declared by</dt>
+            <dd>{{ event.declared_by.get_full_name|default:"—" }} at {{ event.declared_at|date:"j M Y H:i" }}</dd>
+            {% if event.expected_end %}<dt>Expected back</dt><dd>{{ event.expected_end|date:"j M Y H:i" }}</dd>{% endif %}
+            {% if event.ended_at %}
+            <dt>Restored</dt>
+            <dd>{{ event.ended_at|date:"j M Y H:i" }} by {{ event.ended_by.get_full_name|default:"—" }}</dd>
+            <dt>How</dt><dd>{{ event.recovery_notes|default:"—"|linebreaksbr }}</dd>
+            {% endif %}
+            <dt>Results entered from paper</dt><dd>{{ event.backloaded_results }}</dd>
+            {% if event.reconciled_at %}
+            <dt>Reconciled</dt>
+            <dd>{{ event.reconciled_at|date:"j M Y H:i" }} by {{ event.reconciled_by.get_full_name|default:"—" }}</dd>
+            {% endif %}
+        </dl>
+    </div>
+</div>
+
+{% if event.is_open %}
+<div class="card">
+    <div class="card-header"><h3>The system is back</h3></div>
+    <div class="card-body">
+        <p class="muted">
+            Before pressing this, confirm the audit chain verifies — the
+            <a href="{% url 'operations:backup' %}">maintenance screen</a> shows it.
+            Recording the system as restored also lifts read-only mode if it is on.
+        </p>
+        <form method="post" action="{% url 'operations:downtime_end' event.pk %}">
+            {% csrf_token %}
+            {{ end_form.as_p }}
+            <button class="btn btn-primary" type="submit">Record as restored</button>
+        </form>
+    </div>
+</div>
+{% elif not event.is_reconciled %}
+<div class="card">
+    <div class="card-header"><h3>Close the outage</h3></div>
+    <div class="card-body">
+        <form method="post" action="{% url 'operations:downtime_reconcile' event.pk %}">
+            {% csrf_token %}
+            {{ reconcile_form.as_p }}
+            <button class="btn btn-primary" type="submit">Reconcile and close</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+{% endblock %}

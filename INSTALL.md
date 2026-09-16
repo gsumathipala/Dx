@@ -239,6 +239,27 @@ Or from cron, without `--forever`:
 * * * * * cd /opt/dx && .venv/bin/python manage.py deliver_webhooks
 ```
 
+### Downtime pack
+
+**Required before go-live.** Regenerates the file the laboratory works from
+when this system is unavailable.
+
+```bash
+python manage.py downtime_pack
+```
+
+```cron
+*/15 * * * * cd /opt/dx && .venv/bin/python manage.py downtime_pack --quiet
+```
+
+Set `DOWNTIME_PACK_DIR` to somewhere **reachable when this server is not** — a
+share replicated to a laboratory workstation, or a stick somebody swaps. A pack
+that only exists on the machine that is down is not a downtime pack.
+
+The pack is unencrypted patient data by default, deliberately: one you need
+this application to open is useless when this application is what is missing.
+Put it on an encrypted volume the laboratory physically controls.
+
 ### Exception sweep
 
 Raises exception queue items for conditions nobody is present to notice — a
@@ -352,12 +373,14 @@ working password with an older one.
 python manage.py test tests
 ```
 
-412 tests covering the audit chain and its immutability, the regulatory
+604 tests covering the audit chain and its immutability, the regulatory
 controls, the clinical decision engine, the rules engine and every
 autoverification guardrail, accessioning under concurrency, the instrument
 protocols, inbound HL7 and host query, API authentication and scoping, webhook
 signing and retry, the exception queue, GDPR erasure assessment, and every
-registered page.
+registered page, plus record locking, downtime and backloading, TOTP against
+RFC 6238's published vectors, OIDC token verification including the classic JWT
+attacks, Code 128 round-trips, and that no identifier reaches `/metrics`.
 
 ---
 

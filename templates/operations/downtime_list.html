@@ -1,0 +1,84 @@
+{% extends "generic/list.html" %}
+{% block content %}
+{% if read_only_reason %}
+    <div class="alert alert-error">
+        <strong>The system is read-only.</strong> {{ read_only_reason }}
+        <form method="post" action="{% url 'operations:downtime_read_only' %}" class="inline">
+            {% csrf_token %}
+            <button class="btn btn-sm" type="submit">Lift read-only mode</button>
+        </form>
+    </div>
+{% endif %}
+
+{% if current %}
+    <div class="alert alert-warning">
+        <strong>{{ current.reference }} is open</strong> — declared
+        {{ current.began_at|date:"j M H:i" }}, {{ current.duration_hours|floatformat:1 }} hours so far.
+        <a href="{% url 'operations:downtime_detail' current.pk %}">Open it</a>.
+    </div>
+{% endif %}
+
+{% if unreconciled %}
+    <div class="alert alert-warning">
+        {{ unreconciled }} past outage{{ unreconciled|pluralize }}ended but not
+        reconciled. An outage is closed when every paper result is in, not when
+        the server comes back.
+    </div>
+{% endif %}
+
+<div class="callout">
+    <strong>The pack is the thing that matters.</strong>
+    When the system is down you cannot ask it what was requested. The downtime
+    pack is a self-contained file — no server, no database, no network — holding
+    the outstanding orders, each patient's recent results, and the reference and
+    critical limits. It has to be somewhere reachable when this machine is not.
+    {% if latest_pack %}
+        <br>
+        Last written {{ latest_pack.generated_at|date:"j M Y H:i" }}
+        ({{ latest_pack.order_count }} order{{ latest_pack.order_count|pluralize }}){% if latest_pack.is_stale %} —
+        <strong>that is more than twelve hours ago. A stale pack is a trap, not a safety net.</strong>{% endif %}
+        · <a href="{% url 'operations:downtime_download_pack' latest_pack.pk %}">Download</a>
+    {% else %}
+        <br><strong>No pack has ever been generated.</strong>
+        Schedule <code>manage.py downtime_pack</code> every fifteen minutes.
+    {% endif %}
+    <form method="post" action="{% url 'operations:downtime_generate_pack' %}" class="inline">
+        {% csrf_token %}
+        <button class="btn btn-sm" type="submit">Generate one now</button>
+    </form>
+</div>
+
+{% if not current %}
+<div class="card">
+    <div class="card-header"><h3>Declare downtime</h3></div>
+    <div class="card-body">
+        <form method="post" action="{% url 'operations:downtime_declare' %}">
+            {% csrf_token %}
+            {{ declare_form.as_p }}
+            <button class="btn btn-primary" type="submit">Declare</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{% if not read_only_reason %}
+<div class="card">
+    <div class="card-header"><h3>Read-only mode</h3></div>
+    <div class="card-body">
+        <p class="muted">
+            For recovery: the application stays reachable and refuses every
+            write. A restore racing against live traffic is how a laboratory
+            ends up with a chain that will not verify and no way to tell which
+            results are real.
+        </p>
+        <form method="post" action="{% url 'operations:downtime_read_only' %}">
+            {% csrf_token %}
+            {{ read_only_form.as_p }}
+            <button class="btn btn-danger" type="submit">Make the system read-only</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+{{ block.super }}
+{% endblock %}

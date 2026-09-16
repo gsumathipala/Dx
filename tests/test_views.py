@@ -23,12 +23,21 @@ NON_GET_ROUTES = {
     "instrument_host_query", "inbound_hl7",
     "compliance:subject_request_create",
     "accounts:lock_heartbeat", "accounts:lock_release",
+    "accounts:mfa_recovery",
+    "operations:downtime_declare", "operations:downtime_generate_pack",
+    "operations:downtime_read_only",
 }
 
 #: Namespaces whose routes authenticate with a bearer token rather than a
 #: session, so a logged-in browser is correctly refused. They are exercised by
 #: tests/test_api.py instead.
 TOKEN_AUTHENTICATED_NAMESPACES = ("api:",)
+
+#: Routes whose non-200 answer is the correct one here. `readyz` reports
+#: not-ready because the test runner deliberately drops the audit immutability
+#: triggers so it can TRUNCATE between tests — the check is working, and
+#: tests/test_observability.py asserts both of its states properly.
+EXPECTED_NON_OK = {"readyz"}
 
 
 def all_url_names() -> list[str]:
@@ -95,6 +104,8 @@ class RouteSmokeTests(TestCase):
             if name in NON_GET_ROUTES or name.startswith(("admin:", "django-admin")):
                 continue
             if name.startswith(TOKEN_AUTHENTICATED_NAMESPACES):
+                continue
+            if name in EXPECTED_NON_OK:
                 continue
             args = self._args_for(name)
             try:

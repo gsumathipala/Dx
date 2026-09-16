@@ -633,3 +633,145 @@ class ExceptionItem(IdentifiedModel):
     @property
     def safe_detail(self) -> str:
         return "[redacted — contains patient or specimen detail]"
+
+
+# ── Business continuity ──────────────────────────────────────────────────────
+
+
+class DowntimeEventQuerySet(models.QuerySet):
+    def open(self):
+        return self.filter(ended_at__isnull=True)
+
+    def current(self):
+        return self.open().order_by("-declared_at").first()
+
+
+class DowntimeEvent(IdentifiedModel):
+    """A period during which the laboratory worked without the system.
+
+    Every accreditation body asks the same question at inspection: *show me
+    what you do when the LIS is down*. A laboratory does not stop. It runs on
+    paper, and when the system returns, those results have to reach the record
+    — identifiably, with the time they were actually produced and the person
+    who actually produced them, not the person who typed them in afterwards.
+
+    CLIA §493.1105 and §493.1291 require the report to carry the date and
+    identity of the person performing the test; ISO 15189 §8.7 treats an
+    unplanned outage as a nonconformity to be managed; CAP asks for a
+    documented downtime procedure that has been *tested*. This model is the
+    record all three want: what happened, how long, what was produced on
+    paper, and when it was reconciled.
+
+    A planned outage is declared before it starts; an unplanned one is declared
+    once somebody notices, and ``began_at`` can be backdated to when the
+    laboratory actually lost the system rather than when it was logged.
+    """
+
+    class Kind(models.TextChoices):
+        PLANNED = "planned", "Planned (maintenance, upgrade, migration)"
+        UNPLANNED = "unplanned", "Unplanned (outage, failure, network loss)"
+        DRILL = "drill", "Drill (testing the downtime procedure)"
+
+    reference = models.CharField(max_length=32, unique=True, help_text="DT-YYYY-NNNN")
+    kind = models.CharField(max_length=16, choices=Kind.choices, default=Kind.UNPLANNED)
+
+    #: When the laboratory actually lost the system, which is not always when
+    #: somebody got round to recording it.
+    began_at = models.DateTimeField(default=timezone.now)
+    declared_at = models.DateTimeField(default=timezone.now, editable=False)
+    declared_by = models.ForeignKey(
+        django_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="declared_downtime",
+    )
+    expected_end = models.DateTimeField(null=True, blank=True)
+
+    reason = models.TextField(help_text="What happened, in the words you would use to an inspector.")
+    impact = models.TextField(
+        blank=True,
+        help_text="Which disciplines and which workflows were affected.",
+    )
+
+    ended_at = models.DateTimeField(null=True, blank=True)
+    ended_by = models.ForeignKey(
+        django_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="ended_downtime",
+    )
+    recovery_notes = models.TextField(blank=True)
+
+    #: Reconciliation. An outage is not closed when the system comes back; it
+    #: is closed when everything produced on paper is in the record.
+    backloaded_results = models.PositiveIntegerField(default=0, editable=False)
+    reconciled_at = models.DateTimeField(null=True, blank=True)
+    reconciled_by = models.ForeignKey(
+        django_settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="reconciled_downtime",
+    )
+    corrective_action = models.ForeignKey(
+        "compliance.CorrectiveAction", null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="downtime_events",
+    )
+
+    objects = DowntimeEventQuerySet.as_manager()
+
+    class Meta:
+        db_table = "downtime_events"
+        ordering = ["-began_at"]
+        indexes = [models.Index(fields=["ended_at", "-began_at"])]
+
+    def __str__(self) -> str:
+        return f"{self.reference} — {self.get_kind_display()}"
+
+    @property
+    def is_open(self) -> bool:
+        return self.ended_at is None
+
+    @property
+    def is_reconciled(self) -> bool:
+        return self.reconciled_at is not None
+
+    @property
+    def duration_hours(self) -> float:
+        end = self.ended_at or timezone.now()
+        return (end - self.began_at).total_seconds() / 3600.0
+
+    @property
+    def needs_reconciliation(self) -> bool:
+        """Ended, but nobody has confirmed the paper results are all in."""
+        return self.ended_at is not None and self.reconciled_at is None
+
+
+class DowntimePack(IdentifiedModel):
+    """A record that a downtime pack was generated, and what was in it.
+
+    The pack itself is a self-contained HTML file written to disk — it has to
+    be readable with no server, no database and no network, because those are
+    exactly what is missing when it is needed.
+
+    This row exists so that "was the pack current when the system went down?"
+    is answerable. A downtime pack generated three weeks ago is worse than
+    none, because people trust it.
+    """
+
+    generated_at = models.DateTimeField(default=timezone.now)
+    path = models.CharField(max_length=512)
+    encrypted = models.BooleanField(default=False)
+    order_count = models.PositiveIntegerField(default=0)
+    patient_count = models.PositiveIntegerField(default=0)
+    bytes_written = models.PositiveIntegerField(default=0)
+    generated_by = models.CharField(max_length=150, blank=True)
+
+    class Meta:
+        db_table = "downtime_packs"
+        ordering = ["-generated_at"]
+
+    def __str__(self) -> str:
+        return f"downtime pack {self.generated_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def age_hours(self) -> float:
+        return (timezone.now() - self.generated_at).total_seconds() / 3600.0
+
+    @property
+    def is_stale(self) -> bool:
+        """Older than a shift. A stale pack is a trap, not a safety net."""
+        return self.age_hours > 12

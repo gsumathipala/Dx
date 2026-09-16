@@ -1,0 +1,22 @@
+{% load static %}<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}Sign in{% endblock %} · Dx LIS</title>
+    <link rel="stylesheet" href="{% static 'css/dx.css' %}">
+</head>
+<body>
+<div class="login-shell">
+    <div class="login-card">
+        {% block card %}{% endblock %}
+
+        <p class="muted" style="font-size:11px;margin:18px 0 0;line-height:1.5">
+            Access is restricted to authorised personnel. All activity is recorded
+            in an immutable audit trail. Accounts lock after repeated failed
+            sign-in attempts.
+        </p>
+    </div>
+</div>
+</body>
+</html>
