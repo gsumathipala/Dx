@@ -1,3 +1,4 @@
+"""The core workflow: catalogue, orders, specimens, results, labels."""
 from django.apps import AppConfig
 
 

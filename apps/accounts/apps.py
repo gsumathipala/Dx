@@ -1,3 +1,4 @@
+"""Users, roles, authentication, record locking and the PHI barrier."""
 from django.apps import AppConfig
 
 

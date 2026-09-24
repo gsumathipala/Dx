@@ -24,7 +24,7 @@ made is the main way these go wrong.
 ## Contents
 
 **Do these first** — cheap, high value, mostly unblocked
-1. [Colour-independent result flags](#1-colour-independent-result-flags)
+1. [Colour-independent result flags](#1-colour-independent-result-flags--done-2026-09-24) — done
 2. [Positive patient identification at collection](#2-positive-patient-identification-at-collection)
 3. [Send-outs and reference laboratory management](#3-send-outs-and-reference-laboratory-management)
 4. [High availability and disaster recovery](#4-high-availability-and-disaster-recovery)
@@ -54,27 +54,38 @@ made is the main way these go wrong.
 
 # Do these first
 
-## 1. Colour-independent result flags
+## 1. Colour-independent result flags — **done (2026-09-24)**
 
-**Size: days.** This is on the list because it is a patient-safety defect, not
-because it is an accessibility nicety.
+Kept here, corrected rather than deleted, because the original entry was wrong
+and the correction is the useful part.
 
-Result flags are conveyed by colour. WCAG 1.4.1 prohibits colour as the only
-means of conveying information, and the clinical reason is the same as the
-accessibility one: around one in twelve men has a colour vision deficiency, and
-one of them will be the person reading a critical flag at three in the morning.
+**What this entry originally claimed:** that result flags were conveyed by
+colour alone. That was not true — `status_badge` always printed the flag text.
 
-1. Audit every place a flag, status or severity is shown by colour alone —
-   result rows, the worklist, the exception queue, QC charts, delta flags.
-2. Add a non-colour signal to each: a glyph, a letter code (`H`, `L`, `↑↑`),
-   or text. The printed report already carries text; the screen should match it.
-3. Check contrast ratios for every foreground/background pair against 4.5:1.
-4. Verify with a deuteranopia/protanopia simulator on the result entry screen
-   and the exception queue specifically.
-5. Add a regression test asserting that flag rendering emits a text token, not
-   only a CSS class.
+**What was actually wrong**, found by reading the code rather than the
+templates:
 
-**Decisions:** none. Do it.
+* `status_badge` had no mapping for any result flag, so `Low`, `High`,
+  `Critical Low`, `Critical High` and `Abnormal` all fell through to the
+  `muted` tone. **A critical potassium rendered in the same grey as "Draft"** —
+  the lowest-salience style in the application — on the one screen where
+  somebody is deciding whether to telephone a ward.
+* The cumulative report kept only the first letter of each flag in a uniform
+  amber badge, so **"Critical High" and "Critical Low" both rendered as an
+  identical "C"**, and a critical result looked the same as a merely raised
+  one. Those are the two results in a laboratory that must never be confused.
+
+**What was done:** flags mapped to their proper tones with a dedicated
+`critical` style that is filled rather than tinted; a directional marker
+(`↑↑`, `↓↓`, `↑`, `↓`) so the meaning survives greyscale and colour vision
+deficiency; and the compact form on the cumulative report changed to the HL7
+Table 0078 codes `HH`, `LL`, `H`, `L`, which also makes the screen agree with
+what the HL7 export already emits. Covered by `tests/test_integrity.py`.
+
+**The lesson worth keeping:** the original entry was written from a `grep` over
+templates rather than from reading the rendering path. The real defect was
+worse than the one asserted, and a correct-sounding claim from an incomplete
+look is harder to catch than an obviously wrong one.
 
 ---
 
@@ -601,7 +612,7 @@ Ignoring the separate-product items, which need their own decision:
 
 | | Item | Size | Why here |
 | --- | --- | --- | --- |
-| 1 | Colour-independent flags | days | Patient-safety defect, trivially fixed |
+| ~~1~~ | ~~Colour-independent flags~~ | ~~days~~ | **Done 2026-09-24.** The real defect was worse than the one first described — see item 1 |
 | 2 | Positive patient ID | 4–6 wk | Highest safety value per unit of effort; unblocked by labels |
 | 3 | Send-outs | 8–12 wk | High operational value, low risk, no architecture change |
 | 4 | HA/DR | 4–8 wk | Deployment-blocking; mostly infrastructure |

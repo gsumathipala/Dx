@@ -74,12 +74,25 @@ class Command(BaseCommand):
 
     @transaction.atomic
     def handle(self, *args, **options):
+        """Build a working laboratory, in dependency order.
+
+        Every step depends on the ones before it — competency needs users and
+        tests, orders need patients and a catalogue, results need QC to exist
+        or the release gates refuse them. Reordering these calls produces
+        confusing failures deep in the service layer rather than here.
+
+        Everything goes through the real services (``create_order``,
+        ``save_results``) rather than the ORM, so the seeded data has been
+        through the same gates a laboratory's would: signatures, competency
+        checks, the clinical engine and the audit trail.
+        """
         with audit_as(actor_username="seed_demo", actor_role="system", source=AuditSource.CLI):
             if options["reset"]:
                 self._reset()
             departments = self._departments()
             tests = self._tests(departments)
             users = self._users(departments)
+            self._installer()
             self._competency(users, tests)
             self._qc(tests, departments)
             self._inventory(tests)
@@ -103,6 +116,12 @@ class Command(BaseCommand):
     # ── Builders ─────────────────────────────────────────────────────────────
 
     def _reset(self):
+        """Clear previously seeded data so the command is re-runnable.
+
+        Deletes only what this command creates. It is not the database reset —
+        that is ``manage.py reset_data``, which is authorised differently and
+        archives the audit trail first.
+        """
         from apps.clinical.models import (
             CriticalValueNotification, DeltaCheckFlag, DeltaCheckRule,
             EpidemiologyNotification, ReflexActivation, ReflexRule,
@@ -116,6 +135,7 @@ class Command(BaseCommand):
         self.stdout.write("Existing demo records removed.")
 
     def _departments(self):
+        """The disciplines everything else is organised under."""
         from apps.accounts.models import Department
 
         data = [("Clinical Chemistry", "CHEM"), ("Haematology", "HAEM"),
@@ -153,6 +173,12 @@ class Command(BaseCommand):
         return tests
 
     def _users(self, departments):
+        """One account per role, sharing a documented password.
+
+        They exist for evaluation and are listed in INSTALL.md. The command
+        says so on completion, because a demonstration account surviving into
+        production is the most predictable way this system gets breached.
+        """
         users = {}
         for username, name, role, dept in USERS:
             user, created = User.objects.get_or_create(
@@ -169,7 +195,35 @@ class Command(BaseCommand):
             users[username] = user
         return users
 
+    def _installer(self):
+        """Seed the installer account too, so the role is visible on day one.
+
+        Created through ``create_installer`` rather than by hand, so the
+        demonstration account goes through exactly the path a real installation
+        uses — including the password-history record that the ageing policy
+        reads.
+
+        It is the only account ``seed_demo`` creates that the web interface
+        cannot create, which is the point of it: whoever commissions the system
+        should not thereby acquire access to patient records.
+        """
+        from django.core.management import call_command
+
+        from apps.common.constants import Role
+
+        if User.objects.filter(role=Role.INSTALLER).exists():
+            return
+        call_command(
+            "create_installer", username="installer", password=DEMO_PASSWORD,
+            verbosity=0,
+        )
+
     def _competency(self, users, tests):
+        """Grant competency, or nothing can be validated.
+
+        Without this the CLIA competency gate refuses every validation and the
+        demonstration looks broken rather than correctly restrictive.
+        """
         from apps.accounts.models import UserCompetency
 
         today = timezone.localdate()
@@ -185,6 +239,11 @@ class Command(BaseCommand):
                 )
 
     def _qc(self, tests, departments):
+        """Acceptable QC, for the same reason as competency.
+
+        QC lockout blocks release when the last run failed or none exists, so
+        a demonstration without passing QC cannot verify a single result.
+        """
         from apps.quality.models import (
             Equipment, QcDefinition, QcMaterial, QcRun, RejectionCriterion, evaluate_westgard,
         )
@@ -477,6 +536,13 @@ class Command(BaseCommand):
         ]
 
     def _orders(self, patients, tests, users):
+        """Orders at each stage of the workflow, plus the cases worth showing.
+
+        Deliberately includes a historic episode (so delta checks have a
+        predecessor), a STAT order with a critical potassium, and a raised TSH
+        that triggers the reflex rule — the three behaviours that are invisible
+        on an empty database.
+        """
         """Create orders spread across the workflow, including a prior episode
         so delta checks have something to compare against."""
         from apps.laboratory.services import create_order, save_results
@@ -487,14 +553,16 @@ class Command(BaseCommand):
 
         # A historic episode, so the delta check has a predecessor.
         historic = create_order(patient=patients[0], tests=[tests["CREA"]],
-                                ordered_by="Dr Historic", user=users["rclerk"])
+                                ordered_by="Dr Historic", specimen_type="Serum",
+                                user=users["rclerk"])
         historic.timestamp = timezone.now() - timedelta(days=10)
         historic.save(update_fields=["timestamp"])
         save_results(order=historic, values={tests["CREA"].id: "85"}, user=users["bscientist"])
 
         # A completed, verified order.
         completed = create_order(patient=patients[0], tests=chemistry,
-                                 ordered_by="Dr Adeyemi", user=users["rclerk"])
+                                 ordered_by="Dr Adeyemi", specimen_type="Serum",
+                                 user=users["rclerk"])
         save_results(order=completed,
                      values={t.id: v for t, v in zip(chemistry, ["5.1", "139", "4.3", "150"])},
                      user=users["jtech"])
@@ -505,26 +573,31 @@ class Command(BaseCommand):
 
         # An order resulted but awaiting verification.
         awaiting = create_order(patient=patients[1], tests=haematology,
-                                ordered_by="Dr Chowdhury", user=users["rclerk"])
+                                ordered_by="Dr Chowdhury", specimen_type="EDTA whole blood",
+                                user=users["rclerk"])
         save_results(order=awaiting,
                      values={t.id: v for t, v in zip(haematology, ["96", "13.4", "142"])},
                      user=users["jtech"])
 
         # A STAT order with a critical potassium.
         stat = create_order(patient=patients[3], tests=[tests["K"], tests["GLU"]],
-                            ordered_by="Dr Emergency", priority="STAT", user=users["rclerk"])
+                            ordered_by="Dr Emergency", priority="STAT",
+                            specimen_type="Lithium heparin", user=users["rclerk"])
         save_results(order=stat, values={tests["K"].id: "6.9", tests["GLU"].id: "27.5"},
                      user=users["jtech"])
 
         # A reflex-triggering thyroid request.
         thyroid = create_order(patient=patients[2], tests=[tests["TSH"]],
-                               ordered_by="Dr Lindqvist", user=users["rclerk"])
+                               ordered_by="Dr Lindqvist", specimen_type="Serum",
+                               user=users["rclerk"])
         save_results(order=thyroid, values={tests["TSH"].id: "8.7"}, user=users["bscientist"])
 
         # A paediatric order, to exercise the demographic reference interval.
         create_order(patient=patients[4], tests=[tests["CREA"], tests["HB"]],
-                     ordered_by="Dr Paediatrics", user=users["rclerk"])
+                     ordered_by="Dr Paediatrics", specimen_type="Serum",
+                     user=users["rclerk"])
 
         # An open request awaiting results.
         create_order(patient=patients[5], tests=[tests["CULT"]],
-                     ordered_by="Dr Mensah", user=users["rclerk"])
+                     ordered_by="Dr Mensah", specimen_type="Wound swab",
+                     user=users["rclerk"])

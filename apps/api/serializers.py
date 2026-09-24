@@ -14,6 +14,7 @@ def _iso(value):
 
 
 def test_definition(test) -> dict:
+    """A catalogue entry. No patient data, so this is the one safe-by-default shape."""
     return {
         "code": test.code,
         "name": test.name,
@@ -57,6 +58,13 @@ def patient(record, *, identifiers: bool = True) -> dict:
 
 
 def result(record) -> dict:
+    """One analyte result.
+
+    ``autoverified`` is derived from the verifier string rather than stored,
+    because a rule-released result records ``rule:<name>`` as its verifier.
+    Anything presenting results clinically should surface that distinction —
+    the printed report does.
+    """
     test = record.test
     return {
         "id": str(record.pk),
@@ -78,6 +86,14 @@ def result(record) -> dict:
 
 
 def order(record, *, include_results: bool = False, identifiers: bool = True) -> dict:
+    """An order, optionally with its results.
+
+    ``include_results`` is off by default so a collection endpoint does not
+    silently emit every result for every order on the page.
+
+    Report rows are filtered out of ``results`` and surfaced separately as
+    ``narrative``; leaving them in would emit an entry with a null test code.
+    """
     payload = {
         "id": str(record.pk),
         "accession_number": record.accession_number,
@@ -105,6 +121,7 @@ def order(record, *, include_results: bool = False, identifiers: bool = True) ->
 
 
 def exception_item(record) -> dict:
+    """One exception queue item. Carries the accession, so this is PHI."""
     return {
         "id": str(record.pk),
         "source": record.source,
@@ -123,6 +140,7 @@ def exception_item(record) -> dict:
 
 
 def webhook(record, *, secret: str | None = None) -> dict:
+    """A subscription. ``secret`` is passed only on creation — it is shown once."""
     payload = {
         "id": str(record.pk),
         "name": record.name,
@@ -139,6 +157,7 @@ def webhook(record, *, secret: str | None = None) -> dict:
 
 
 def icd10(record) -> dict:
+    """An ICD-10 catalogue entry."""
     return {
         "code": record.code,
         "description": record.description,
@@ -148,6 +167,7 @@ def icd10(record) -> dict:
 
 
 def loinc(record) -> dict:
+    """A LOINC catalogue entry."""
     return {
         "loinc_code": record.loinc_code,
         "long_name": record.long_name,

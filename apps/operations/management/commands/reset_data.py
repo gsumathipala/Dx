@@ -102,6 +102,16 @@ class Command(BaseCommand):
     # ── Entry point ──────────────────────────────────────────────────────────
 
     def handle(self, *args, **options):
+        """Archive, then wipe, then open a new audit chain.
+
+        The order is the whole design. The existing trail is archived first, so
+        a reset can be proved not to have been a way of destroying evidence;
+        the new chain then opens with an event recording the previous chain's
+        length and head hash, which links the two across the discontinuity.
+
+        Refuses unless explicitly authorised — see ``_check_authorised``. This
+        is the one command in the system that destroys patient data.
+        """
         self.dry_run = options["dry_run"]
 
         if not self.dry_run:

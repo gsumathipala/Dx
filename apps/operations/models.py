@@ -38,6 +38,14 @@ class SystemSetting(IdentifiedModel):
 
 
 class SystemAlert(IdentifiedModel, ActivatableModel):
+    """A banner shown across the application to everybody.
+
+    For things the whole laboratory needs to know at once — an analyser down,
+    a reagent recall. Not for anything needing action by a named person: that
+    is the exception queue, which can be assigned and must be closed with a
+    reason. An alert nobody can close is an alert everybody learns to ignore.
+    """
+
     class Kind(models.TextChoices):
         INFO = "info", "Information"
         WARNING = "warning", "Warning"
@@ -111,6 +119,12 @@ class Message(IdentifiedModel):
 
 
 class Feedback(IdentifiedModel):
+    """Issues and suggestions raised by staff, kept in the system they concern.
+
+    Deliberately low-ceremony: the alternative is that nobody reports the small
+    daily frictions that are the best evidence of what needs fixing.
+    """
+
     class Kind(models.TextChoices):
         BUG = "Bug", "Bug"
         FEATURE = "Feature", "Feature request"
@@ -138,6 +152,13 @@ class Feedback(IdentifiedModel):
 
 
 class Worksheet(IdentifiedModel):
+    """A batch of work grouped for one analytical run.
+
+    Groups orders so a run can be set up, checked and released together, which
+    is how bench work is actually organised — the worklist is per-specimen, the
+    worksheet is per-run.
+    """
+
     class Status(models.TextChoices):
         DRAFT = "Draft", "Draft"
         ACTIVE = "Active", "Active"
@@ -163,6 +184,15 @@ class Worksheet(IdentifiedModel):
 
 
 class Workstation(IdentifiedModel, ActivatableModel):
+    """A bench, and what it is capable of.
+
+    Capability is expressed three ways because routing has to satisfy all of
+    them: ``supported_tests`` (can it run this analyte),
+    ``supported_specimen_types`` (can it accept this tube), and ``status``
+    (is it available at all). ``max_throughput`` is used only for load
+    balancing between benches that can all do the work.
+    """
+
     class Status(models.TextChoices):
         ONLINE = "Online", "Online"
         OFFLINE = "Offline", "Offline"
@@ -204,11 +234,24 @@ class Workstation(IdentifiedModel, ActivatableModel):
 
     @property
     def utilisation(self) -> float:
+        """In-progress work as a fraction of hourly capacity.
+
+        A workstation with no declared throughput reports 1.0 — fully loaded —
+        so routing sends work elsewhere. Reporting 0.0 would make an
+        unconfigured bench look like the emptiest one and attract everything.
+        """
         if not self.max_throughput:
             return 1.0
         return self.current_tests / self.max_throughput
 
     def can_accept(self, test=None, specimen_type: str | None = None) -> bool:
+        """Whether this bench could take this work at all.
+
+        Capability, not preference — ordering between capable benches is the
+        routing rule's job. An empty ``supported_specimen_types`` means "no
+        restriction" rather than "accepts nothing", which is the reading a
+        laboratory expects from a blank field.
+        """
         if not self.active or self.status != self.Status.ONLINE:
             return False
         if test is not None and not self.supported_tests.filter(pk=test.pk).exists():
@@ -220,6 +263,13 @@ class Workstation(IdentifiedModel, ActivatableModel):
 
 
 class RoutingRule(IdentifiedModel, ActivatableModel):
+    """Which bench a test should go to, and in what order of preference.
+
+    Evaluated highest ``priority`` first. The workstation ordering within a
+    rule is the preference order; the first one that ``can_accept`` the work
+    takes it.
+    """
+
     test = models.ForeignKey(
         "laboratory.TestDefinition", on_delete=models.CASCADE, related_name="routing_rules"
     )
@@ -244,6 +294,8 @@ class RoutingRule(IdentifiedModel, ActivatableModel):
 
 
 class RoutingAssignment(IdentifiedModel):
+    """One test routed to one bench, and how far it has got."""
+
     class Status(models.TextChoices):
         PENDING = "Pending", "Pending"
         IN_PROGRESS = "In Progress", "In progress"
@@ -269,6 +321,14 @@ class RoutingAssignment(IdentifiedModel):
 
 
 class TatThreshold(IdentifiedModel, ActivatableModel):
+    """Turnaround targets, per test or department, per priority.
+
+    Three times rather than one: ``target_hours`` is the promise,
+    ``warning_hours`` is when somebody should look, and ``breach_hours`` is
+    when it has failed. The warning tier is what makes a breach preventable
+    rather than merely recorded.
+    """
+
     """Turnaround time targets by test, department or globally."""
 
     class Scope(models.TextChoices):
@@ -301,6 +361,13 @@ class TatThreshold(IdentifiedModel, ActivatableModel):
 
 
 class TatBreach(IdentifiedModel):
+    """A recorded turnaround failure, kept after the fact.
+
+    Persisted rather than computed on demand so the history survives a later
+    change to the thresholds — otherwise raising a target would retroactively
+    erase every breach against the old one.
+    """
+
     class BreachType(models.TextChoices):
         WARNING = "warning", "Approaching target"
         CRITICAL = "critical", "Target breached"
@@ -327,6 +394,14 @@ class TatBreach(IdentifiedModel):
 
 
 class StorageLocation(IdentifiedModel, ActivatableModel):
+    """A freezer, shelf, rack or box, nested by parent.
+
+    Self-referential so a position reads as its full path — "Freezer 2 / Rack
+    A / Box 3 / A1" — which is what somebody holding a tube needs. ``path``
+    walks the parents, so lists showing it must ``select_related`` or they
+    acquire an N+1.
+    """
+
     """Freezer, rack, box and position hierarchy for specimen storage."""
 
     class Kind(models.TextChoices):
@@ -443,7 +518,12 @@ class ChainOfCustodyEvent(IdentifiedModel):
 
 
 class Aliquot(IdentifiedModel):
-    """A child specimen derived from a parent, retaining the custody chain."""
+    """A child specimen derived from a parent, retaining the custody chain.
+
+    The aliquot is itself a :class:`apps.laboratory.models.Specimen`, which is
+    why host query resolves a daughter tube's barcode through the ordinary
+    container lookup with no special case.
+    """
 
     parent = models.ForeignKey(
         "laboratory.Specimen", on_delete=models.CASCADE, related_name="aliquots"

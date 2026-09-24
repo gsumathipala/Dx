@@ -1,3 +1,4 @@
+"""Reports, controlled documents, requesters and distribution."""
 from django.apps import AppConfig
 
 

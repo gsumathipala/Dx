@@ -123,3 +123,57 @@ class ResetBehaviourTests(TestCase):
         self._reset(keep_audit=True)
         self.assertGreaterEqual(AuditEvent.objects.count(), before)
         self.assertEqual(Patient.objects.count(), 0)
+
+
+class SeededInstallerTests(TestCase):
+    """`seed_demo` must create the installer, or the role is invisible.
+
+    The installer cannot be created through the web interface by design, so an
+    evaluator who never runs `create_installer` would otherwise never see the
+    separation of duties that is one of the more unusual things here.
+    """
+
+    def test_seed_demo_creates_an_installer_through_the_real_command(self):
+        from django.contrib.auth import get_user_model
+        from django.core.management import call_command
+
+        from apps.common.constants import Role
+
+        call_command("seed_demo", verbosity=0)
+        User = get_user_model()
+
+        installer = User.objects.filter(role=Role.INSTALLER).first()
+        self.assertIsNotNone(installer)
+        self.assertEqual(installer.username, "installer")
+
+    def test_the_seeded_installer_uses_the_documented_password(self):
+        """INSTALL.md publishes this; a drift would make the documentation wrong."""
+        from django.contrib.auth import get_user_model
+        from django.core.management import call_command
+
+        call_command("seed_demo", verbosity=0)
+        installer = get_user_model().objects.get(username="installer")
+        self.assertTrue(installer.check_password("Dx-Demo-Pass!2026"))
+
+    def test_the_seeded_installer_cannot_see_patient_data(self):
+        from django.contrib.auth import get_user_model
+        from django.core.management import call_command
+
+        call_command("seed_demo", verbosity=0)
+        installer = get_user_model().objects.get(username="installer")
+
+        self.assertFalse(installer.may_see_patient_data)
+        # Never a Django admin user: the admin site has no PHI barrier.
+        self.assertFalse(installer.is_staff)
+
+    def test_seeding_twice_does_not_create_a_second_installer(self):
+        from django.contrib.auth import get_user_model
+        from django.core.management import call_command
+
+        from apps.common.constants import Role
+
+        call_command("seed_demo", verbosity=0)
+        call_command("seed_demo", verbosity=0)
+        self.assertEqual(
+            get_user_model().objects.filter(role=Role.INSTALLER).count(), 1
+        )

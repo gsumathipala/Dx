@@ -1,3 +1,10 @@
+"""Patient demographics form.
+
+Date of birth is validated rather than merely collected: it drives
+age-specific reference intervals, critical limits and several decision rules,
+so a typo here misinterprets every result for that patient rather than showing
+a wrong number on one screen.
+"""
 from __future__ import annotations
 
 from django import forms

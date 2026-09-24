@@ -110,7 +110,7 @@ CONTEXT_MAP = {
     "compliance:capa_list": "quality/corrective-actions",
     "compliance:pt_list": "quality/proficiency-testing",
     "compliance:validation_list": "quality/method-validation",
-    "operations:backup": "administration/backup-and-restore",
+    "operations:backup": "administration/integrity-checks",
     "operations:downtime_list": "continuity/downtime",
     "operations:downtime_detail": "continuity/downtime",
     "operations:downtime_backload": "continuity/downtime",

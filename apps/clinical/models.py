@@ -10,7 +10,21 @@ from apps.common.models import ActivatableModel, IdentifiedModel
 
 
 class DeltaCheckRule(IdentifiedModel):
+    """When to flag a result for changing too much from the patient's last one.
+
+    One rule per analyte. The engine (``apps.clinical.services.run_delta_checks``)
+    finds the most recent *earlier* numeric result for the same patient and test
+    inside ``lookback_days``, and flags when the change exceeds ``threshold``.
+
+    ``test_code`` duplicates ``test.code`` deliberately: the rule is quoted in
+    flags and reports that must still read correctly after a catalogue entry is
+    renamed or retired.
+    """
+
     class DeltaType(models.TextChoices):
+        # Percent is right for analytes with a wide reference interval
+        # (creatinine, ferritin); absolute for narrow ones (sodium), where a
+        # 10% change is already implausible.
         PERCENT = "percent", "Percent change"
         ABSOLUTE = "absolute", "Absolute change"
 
@@ -24,8 +38,13 @@ class DeltaCheckRule(IdentifiedModel):
     )
     test_code = models.CharField(max_length=64)
     delta_type = models.CharField(max_length=16, choices=DeltaType.choices)
+    #: Interpreted as a percentage or in the analyte's own units, depending on
+    #: ``delta_type``. There is no unit field: the units are the test's.
     threshold = models.FloatField()
     direction = models.CharField(max_length=16, choices=Direction.choices, default=Direction.ANY)
+    #: Bounds the search for a predecessor. Too long and a delta fires on a
+    #: genuine clinical change months apart; too short and a sample swap
+    #: between admissions goes unnoticed. Thirty days suits most chemistry.
     lookback_days = models.PositiveIntegerField(
         default=30, help_text="How far back to search for a comparable prior result"
     )
@@ -43,6 +62,19 @@ class DeltaCheckRule(IdentifiedModel):
 
 
 class DeltaCheckFlag(IdentifiedModel):
+    """A result that tripped a delta rule, with the comparison that tripped it.
+
+    Everything needed to re-explain the flag is copied onto the row —
+    ``previous_value``, ``previous_timestamp``, both computed deltas — rather
+    than recomputed on demand. The predecessor may later be amended, erased
+    under GDPR, or moved by a patient merge; the flag still has to say what it
+    saw at the time.
+
+    Both ``delta_percent`` and ``delta_absolute`` are stored whichever rule
+    fired, because the person reading the flag wants the other one too.
+    ``delta_percent`` is null when the previous value was zero.
+    """
+
     order = models.ForeignKey("laboratory.Order", on_delete=models.CASCADE, related_name="delta_flags")
     test = models.ForeignKey(
         "laboratory.TestDefinition", on_delete=models.CASCADE, related_name="delta_flags"
@@ -76,6 +108,9 @@ class DeltaCheckFlag(IdentifiedModel):
 
 class CriticalValueNotificationQuerySet(models.QuerySet):
     def pending(self):
+        # The literal rather than Status.PENDING because this manager is
+        # attached before the class body finishes; they are the same string and
+        # a test asserts it stays that way.
         return self.filter(status="Pending")
 
     def overdue(self):
@@ -108,13 +143,24 @@ class CriticalValueNotification(IdentifiedModel):
     test = models.ForeignKey(
         "laboratory.TestDefinition", on_delete=models.CASCADE, related_name="critical_values"
     )
+    #: Copied from the test and result at the moment of raising. A notification
+    #: is a record of what was told to whom; it must not change when the
+    #: catalogue's critical limits are later revised, or the read-back
+    #: documentation would describe a conversation that never happened.
     test_code = models.CharField(max_length=64)
+    #: Text, not a float: a critical value may be "<0.1" or "TNP", and the
+    #: number shown to the clinician is the number that must be recorded.
     value = models.CharField(max_length=64)
+    #: Rendered limit as it stood, e.g. "> 25 mmol/L".
     threshold = models.CharField(max_length=64)
     critical_type = models.CharField(max_length=8, choices=CriticalType.choices)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
     created_at = models.DateTimeField(default=timezone.now)
     created_by = models.CharField(max_length=150, null=True, blank=True)
+    #: Set when the notification is raised — 30 minutes for a STAT order, 60
+    #: otherwise. Past this, `sweep_exceptions` puts the notification on the
+    #: exception queue, because a critical value nobody acknowledged overnight
+    #: is the failure mode this whole model exists to prevent.
     escalation_due_at = models.DateTimeField(
         null=True, blank=True, help_text="Unacknowledged notifications escalate after this time"
     )
@@ -145,7 +191,15 @@ class CriticalValueNotification(IdentifiedModel):
 
 
 class CriticalValueAcknowledgment(IdentifiedModel):
-    """Documented read-back of a critical value."""
+    """Documented read-back of a critical value.
+
+    Several per notification is normal and correct: the first call reaches a
+    ward clerk, the second the on-call doctor. Each attempt is its own row, so
+    "we tried for forty minutes" is evidenced rather than asserted.
+
+    ``read_back_confirmed`` is the field an inspector looks at. Telling someone
+    a value is not notification; them repeating it back is.
+    """
 
     class Method(models.TextChoices):
         PHONE = "phone", "Telephone"
@@ -175,6 +229,18 @@ class CriticalValueAcknowledgment(IdentifiedModel):
 
 
 class ReflexRule(IdentifiedModel):
+    """Add a follow-on test automatically when a result crosses a threshold.
+
+    The classic case is a raised TSH reflexing to free T4: the clinician asked
+    one question, and answering it properly needs a second test on the same
+    sample, now, rather than a second visit a week later.
+
+    Deliberately simpler than a :class:`apps.rules.models.Rule`, which can also
+    add a test. This is the single-condition form the laboratory configures per
+    analyte and can read at a glance; the rules engine is for anything needing
+    more than one condition. Both run, and both are idempotent per order.
+    """
+
     class Operator(models.TextChoices):
         GT = ">", "greater than"
         GTE = ">=", "greater than or equal to"
@@ -204,6 +270,12 @@ class ReflexRule(IdentifiedModel):
         return f"{self.name}: {self.trigger_test_id} {self.operator} {self.threshold} → {self.add_test_code}"
 
     def matches(self, value: float) -> bool:
+        """Whether this result triggers the reflex.
+
+        An unrecognised operator returns False rather than raising: a rule with
+        corrupt configuration must fail closed — adding no test — rather than
+        blowing up the result-entry transaction that called it.
+        """
         comparisons = {
             self.Operator.GT: value > self.threshold,
             self.Operator.GTE: value >= self.threshold,
@@ -215,6 +287,13 @@ class ReflexRule(IdentifiedModel):
 
 
 class ReflexActivation(IdentifiedModel):
+    """A record that a reflex rule fired, and what it added.
+
+    The unique constraint on (order, rule) is what makes reflex testing safe to
+    re-run: correcting a result re-evaluates every rule, and without it a
+    corrected TSH would add a second free T4 each time somebody fixed a typo.
+    """
+
     class Status(models.TextChoices):
         PENDING = "Pending", "Pending"
         ORDERED = "Ordered", "Ordered"
@@ -225,6 +304,9 @@ class ReflexActivation(IdentifiedModel):
         "laboratory.Order", on_delete=models.CASCADE, related_name="reflex_activations"
     )
     rule = models.ForeignKey(ReflexRule, on_delete=models.CASCADE, related_name="activations")
+    #: The value that triggered it, as text and as it stood. If the result is
+    #: later corrected, this still shows why the extra test was added — which
+    #: is the question asked when somebody queries the bill.
     trigger_value = models.CharField(max_length=64)
     new_test = models.ForeignKey(
         "laboratory.TestDefinition", on_delete=models.CASCADE, related_name="reflex_activations"
@@ -244,7 +326,21 @@ class ReflexActivation(IdentifiedModel):
 
 
 class DemographicReferenceRange(IdentifiedModel, ActivatableModel):
-    """Age, sex and pregnancy specific reference intervals."""
+    """Age, sex and pregnancy specific reference intervals.
+
+    A single interval per analyte is wrong for most of chemistry and
+    haematology. Creatinine in a six-year-old, haemoglobin in a menstruating
+    woman and alkaline phosphatase in a growing adolescent all have intervals
+    that differ from the adult default by more than the flag threshold — so a
+    catalogue-only interval flags healthy children and misses sick ones.
+
+    Several rows can match one patient. ``specificity`` decides which wins; see
+    ``apps.clinical.services.find_reference_range``, which takes the
+    highest-scoring match rather than the first.
+
+    A null bound means *unbounded on that side*, not zero. An analyte with only
+    an upper limit leaves ``low_normal`` null.
+    """
 
     class GenderScope(models.TextChoices):
         ALL = "All", "All"
@@ -260,8 +356,11 @@ class DemographicReferenceRange(IdentifiedModel, ActivatableModel):
     gender = models.CharField(max_length=8, choices=GenderScope.choices, default=GenderScope.ALL)
     pregnancy = models.BooleanField(default=False)
     trimester = models.PositiveSmallIntegerField(null=True, blank=True)
+    #: Null means unbounded on that side, not zero.
     low_normal = models.FloatField(null=True, blank=True)
     high_normal = models.FloatField(null=True, blank=True)
+    #: Demographic critical limits override the catalogue's, because a panic
+    #: potassium in a neonate is not the adult number.
     low_critical = models.FloatField(null=True, blank=True)
     high_critical = models.FloatField(null=True, blank=True)
     unit = models.CharField(max_length=64, null=True, blank=True)
@@ -278,7 +377,14 @@ class DemographicReferenceRange(IdentifiedModel, ActivatableModel):
 
     @property
     def specificity(self) -> int:
-        """How narrowly this interval is targeted; higher wins when several match."""
+        """How narrowly this interval is targeted; higher wins when several match.
+
+        The weights encode a clinical ordering, not an arbitrary one: pregnancy
+        outranks age and sex because a pregnancy-specific interval already
+        implies both, and a trimester-specific one is narrower still. Two
+        intervals scoring equally means the configuration is ambiguous, and the
+        integrity check reports overlapping bands.
+        """
         score = 0
         if self.age_min is not None or self.age_max is not None:
             score += 2
@@ -318,7 +424,18 @@ class DemographicReferenceRange(IdentifiedModel, ActivatableModel):
 
 
 class CalculatedTest(IdentifiedModel, ActivatableModel):
-    """A test whose value is derived from other results rather than measured."""
+    """A test whose value is derived from other results rather than measured.
+
+    The formula is a *choice*, not an expression: each one is implemented in
+    ``apps.clinical.services.compute_calculated_test`` with its own validity
+    conditions, which a general expression evaluator could not express. The
+    Friedewald equation, for instance, is invalid above 4.5 mmol/L
+    triglycerides and returns nothing rather than a wrong LDL — that rule lives
+    in the code because getting it wrong produces a plausible number.
+
+    ``inputs`` lists the test codes the formula needs. All must be present on
+    the order; a partial set yields no result rather than a guess.
+    """
 
     class Formula(models.TextChoices):
         LDL_FRIEDEWALD = "ldl_friedewald", "LDL (Friedewald)"
@@ -345,7 +462,18 @@ class CalculatedTest(IdentifiedModel, ActivatableModel):
 
 
 class NotifiableCondition(IdentifiedModel, ActivatableModel):
-    """A condition that must be reported to public health authorities."""
+    """A condition that must be reported to public health authorities.
+
+    Detection is by *test*, not by result value: any result for a linked test
+    raises a notification for a person to review. That is deliberately
+    over-inclusive — a false notification is reviewed and closed in seconds,
+    a missed one is a statutory breach and, for something like a meningococcus,
+    a delayed public health response.
+
+    Dx detects and tracks; it does not transmit. Electronic laboratory
+    reporting to a health authority is a separate piece of work — see
+    docs/ROADMAP.md §9.
+    """
 
     name = models.CharField(max_length=255)
     organism = models.CharField(max_length=255, null=True, blank=True)
@@ -380,6 +508,8 @@ class NotifiableCondition(IdentifiedModel, ActivatableModel):
         return value * 24 if raw.endswith("d") else value
 
     def save(self, *args, **kwargs):
+        # Keep the numeric window in step with the label people edit, so the
+        # overdue query stays a SQL comparison rather than a parse per row.
         self.timeframe_hours = self.parse_timeframe(self.timeframe)
         super().save(*args, **kwargs)
 
@@ -400,6 +530,9 @@ class EpidemiologyNotificationQuerySet(models.QuerySet):
         from django.db.models import DateTimeField, ExpressionWrapper, F
         from datetime import timedelta
 
+        # `timedelta(hours=1) * F(...)` is how a database-side interval
+        # multiplication is expressed in the ORM: a Python timedelta cannot be
+        # built from a column value, so the unit is multiplied by the column.
         deadline = ExpressionWrapper(
             F("detected_at") + timedelta(hours=1) * F("condition__timeframe_hours"),
             output_field=DateTimeField(),
@@ -408,7 +541,21 @@ class EpidemiologyNotificationQuerySet(models.QuerySet):
 
 
 class EpidemiologyNotification(IdentifiedModel):
+    """One notifiable condition detected on one order, and its onward journey.
+
+    The unique constraint on (order, condition) makes detection idempotent:
+    correcting a result re-runs the engine, and without it every correction
+    would raise a duplicate notification for the same organism.
+
+    ``reference_number`` is filled in by hand after submitting to the
+    authority, because submission is currently a person using the authority's
+    own portal. It is the evidence that the statutory duty was discharged, so
+    the record is not closed without it.
+    """
+
     class Status(models.TextChoices):
+        # Pending → Reviewed → Submitted → Closed. Only a person moves it past
+        # Reviewed; nothing here transmits to an authority automatically.
         PENDING = "Pending", "Pending review"
         REVIEWED = "Reviewed", "Reviewed"
         SUBMITTED = "Submitted", "Submitted"
@@ -423,6 +570,8 @@ class EpidemiologyNotification(IdentifiedModel):
     condition = models.ForeignKey(
         NotifiableCondition, on_delete=models.CASCADE, related_name="notifications"
     )
+    #: The statutory clock runs from detection, not from review. A laboratory
+    #: cannot extend its own reporting window by being slow to look.
     detected_at = models.DateTimeField(default=timezone.now)
     status = models.CharField(max_length=32, choices=Status.choices, default=Status.PENDING)
     reviewed_by = models.CharField(max_length=150, null=True, blank=True)

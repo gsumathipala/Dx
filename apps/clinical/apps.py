@@ -1,3 +1,4 @@
+"""The clinical decision engine: delta checks, critical values, reflex testing."""
 from django.apps import AppConfig
 
 

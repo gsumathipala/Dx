@@ -123,6 +123,17 @@ def capture_previous_state(sender, instance, **kwargs):
 
 @receiver(post_save)
 def capture_save(sender, instance, created, **kwargs):
+    """Record a create or update, with a field-level diff.
+
+    The diff comes from the snapshot ``capture_previous_state`` took in
+    ``pre_save``; without that there is nothing to compare against, because by
+    ``post_save`` the database already holds the new row.
+
+    Note what this does **not** see: ``bulk_create``, ``bulk_update`` and
+    ``QuerySet.update`` emit no signals at all. Anything using them must record
+    its own summary event or wrap the block in ``suppress_auditing()`` so the
+    omission is deliberate and visible.
+    """
     if not is_audited(sender) or not get_context().enabled:
         return
 
@@ -158,6 +169,12 @@ def capture_save(sender, instance, created, **kwargs):
 
 @receiver(post_delete)
 def capture_delete(sender, instance, **kwargs):
+    """Record a deletion, including the final state of the row.
+
+    Written synchronously (``blocking``): the row is about to stop existing,
+    and an event that never reached the database would leave no trace that it
+    ever did.
+    """
     if not is_audited(sender) or not get_context().enabled:
         return
     record(
@@ -195,6 +212,7 @@ def capture_m2m(sender, instance, action, reverse, model, pk_set, **kwargs):
 
 @receiver(user_logged_in)
 def capture_login(sender, request, user, **kwargs):
+    """Record a successful sign-in — 21 CFR Part 11 §11.10(e), §11.300(d)."""
     record(
         action=AuditAction.LOGIN,
         entity_type=get_user_model()._meta.label,
@@ -207,6 +225,7 @@ def capture_login(sender, request, user, **kwargs):
 
 @receiver(user_logged_out)
 def capture_logout(sender, request, user, **kwargs):
+    """Record a sign-out, including one forced by the idle timeout."""
     if user is None:
         return
     record(
@@ -221,6 +240,11 @@ def capture_logout(sender, request, user, **kwargs):
 
 @receiver(user_login_failed)
 def capture_login_failure(sender, credentials, request=None, **kwargs):
+    """Record a failed sign-in attempt.
+
+    The username is recorded but never the password or any other credential —
+    ``credentials`` carries both, and Django's own masking is not relied on.
+    """
     """Failed authentication is itself a security-relevant record."""
     username = (credentials or {}).get("username", "unknown")
     record(

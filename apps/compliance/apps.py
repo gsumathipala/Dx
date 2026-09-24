@@ -1,3 +1,4 @@
+"""Regulatory records and the controls that enforce them."""
 from django.apps import AppConfig
 
 

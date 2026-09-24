@@ -1,3 +1,11 @@
+"""URL routes for the clinical decision engine configuration and its flag screens.
+
+Ordering matters here. ``CrudResource.urls()`` ends each resource with a
+``<str:pk>/`` pattern, which matches **any** single path segment — so a
+resource mounted at a prefix that is a parent of another's will swallow it.
+Anything more specific must be listed first, and several entries below are
+placed deliberately rather than alphabetically.
+"""
 from django.urls import path
 
 from apps.clinical import forms as clinical_forms

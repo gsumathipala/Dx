@@ -8,6 +8,14 @@ from apps.common.models import ActivatableModel, IdentifiedModel
 
 
 class HistoBlock(IdentifiedModel):
+    """A paraffin block cut from a histopathology specimen.
+
+    The unit of physical tracking in histology: one specimen yields several
+    blocks, each block several slides. Blocks are retained for years (see the
+    retention schedule) and are re-cut when a case is reviewed, so the record
+    has to outlive the report.
+    """
+
     class Status(models.TextChoices):
         CASSETTE_PRINTED = "Cassette Printed", "Cassette printed"
         GROSSED = "Grossed", "Grossed"
@@ -35,6 +43,13 @@ class HistoBlock(IdentifiedModel):
 
 
 class HistoSlide(IdentifiedModel):
+    """A stained slide cut from a block.
+
+    ``stain`` matters as much as the identifier: the same block yields an H&E
+    and any number of special or immunohistochemical stains, and a pathologist
+    asking for "the CD20" needs to find it by stain rather than by number.
+    """
+
     class Status(models.TextChoices):
         PRINTED = "Printed", "Printed"
         STAINED = "Stained", "Stained"
@@ -74,6 +89,15 @@ class Antibiotic(IdentifiedModel, ActivatableModel):
 
 
 class MicroCulture(IdentifiedModel):
+    """A microbiology culture and what grew on it.
+
+    Microbiology results are not numbers, which is why they live here rather
+    than as :class:`apps.laboratory.models.Result` rows: the answer is an
+    organism, a quantity and a susceptibility pattern, and it changes over
+    several days as the plate is read. The culture is updated in place and the
+    audit trail carries the progression.
+    """
+
     class Status(models.TextChoices):
         SETUP = "Setup", "Set up"
         INCUBATION = "Incubation", "Incubating"

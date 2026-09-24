@@ -1,3 +1,4 @@
+"""ASGI entry point. Present for completeness; nothing here is async yet."""
 import os
 
 from django.core.asgi import get_asgi_application

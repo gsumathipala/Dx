@@ -46,6 +46,12 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
+        """Create the single permanent installer account.
+
+        Only creatable here, never through the web interface: the account that
+        can wipe the database and administer every other account should not be
+        reachable by anybody who has merely compromised a browser session.
+        """
         username = options["username"].strip()
         if not username:
             raise CommandError("A username is required.")

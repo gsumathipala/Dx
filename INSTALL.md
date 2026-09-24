@@ -118,8 +118,14 @@ Open **http://127.0.0.1:8000**.
 
 **Password for all demonstration accounts:** `Dx-Demo-Pass!2026`
 
+All eight accounts below are created by `manage.py seed_demo`, including the
+installer — it is seeded through `create_installer`, the same path a real
+installation uses, because the installer role is one of the things worth
+looking at and it is invisible if you have to create it by hand first.
+
 | Username | Name | Role | What this account can reach |
 | --- | --- | --- | --- |
+| `installer` | System Installer | **Installer** | System authority and **no clinical access at all**: users, departments, configuration, instrument interfaces, host query log, downtime and continuity, maintenance, the database reset, and a redacted audit trail. Cannot open a patient, order, result or report |
 | `admin` | System Administrator | Administrator | Everything: user management, departments, notifiable conditions, audit trail, PHI access log, disclosure accounting, backup and maintenance |
 | `lmanager` | Laboratory Manager | Manager | Compliance dashboard, all configuration, KPIs, epidemiology reporting, chain-integrity verification |
 | `bscientist` | Senior Biomedical Scientist | Scientist | Result entry, technical validation and clinical verification, QC entry, worksheets |
@@ -127,6 +133,18 @@ Open **http://127.0.0.1:8000**.
 | `dmedic` | Duty Medical Officer | Medical officer | Clinical verification, critical value documentation, reports |
 | `rclerk` | Reception Clerk | Clerk | Accessioning, specimen reception, phlebotomy scheduling, patient registration |
 | `pphleb` | Phlebotomist | Phlebotomist | Phlebotomy rounds and collection |
+
+### Try signing in as the installer
+
+Worth two minutes, because the separation it enforces is unusual. Sign in as
+`installer` and try to reach a patient:
+
+* The sidebar has no Worklist, no Patients, no Reports.
+* Typing `/patients/` directly returns **403**, not a redirect — the barrier is
+  enforced on every request, not by hiding menu entries.
+* The audit trail *is* available, because verifying it is part of the job — but
+  clinical entries appear redacted: record type, actor, time and hashes are
+  shown; names, MRNs, dates of birth and accession numbers are not.
 
 ### Creating real accounts instead
 
@@ -136,6 +154,10 @@ installer account, sign in as it, and add your staff from **Settings → Users**
 ```bash
 python manage.py create_installer --username installer
 ```
+
+You will be prompted for a password, which is checked against the same strength
+rules the application enforces. `--password` exists for scripted installs but
+puts the password in your shell history, so prefer the prompt.
 
 The installer holds the highest **system** authority — user administration,
 configuration, instrument interfaces, maintenance and the database reset — and
@@ -155,6 +177,15 @@ laboratory can always shut the installer out without being able to become it.
 
 `createsuperuser` still exists, but produces a Django superuser with
 unrestricted access and no PHI barrier. Prefer `create_installer`.
+
+### Then make it yours
+
+**[docs/CUSTOMISING.md](docs/CUSTOMISING.md)** walks through turning a fresh
+installation into your laboratory, in the order to do it: accounts and single
+sign-on, the test catalogue, reference and critical limits, decision rules and
+automatic verification, quality control, benches and routing, reports,
+instruments, the regulatory switches, and branding — with an honest list of the
+few things that need a code change, and a commissioning checklist at the end.
 
 ---
 
@@ -371,9 +402,15 @@ working password with an older one.
 
 ```bash
 python manage.py test tests
+python manage.py check_workflows
 ```
 
-604 tests covering the audit chain and its immutability, the regulatory
+The first proves the code behaves correctly. The second proves this
+installation's *data* is self-consistent — a different question, and the one
+that matters after a migration or an upgrade. It exits non-zero on anything at
+`ERROR`, so it can gate a deployment.
+
+653 tests covering the audit chain and its immutability, the regulatory
 controls, the clinical decision engine, the rules engine and every
 autoverification guardrail, accessioning under concurrency, the instrument
 protocols, inbound HL7 and host query, API authentication and scoping, webhook

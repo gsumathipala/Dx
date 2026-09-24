@@ -10,7 +10,18 @@ from apps.common.models import ActivatableModel, IdentifiedModel
 
 
 class TestDefinition(IdentifiedModel, ActivatableModel):
-    """The test catalogue entry — analyte, units and reference ranges."""
+    """The test catalogue entry — analyte, units and reference ranges.
+
+    The single most consequential table in the system: it decides what can be
+    ordered, what a result means, and when somebody is telephoned. Editing a
+    row here changes the interpretation of every result produced afterwards,
+    which is why `check_workflows` reports results whose stored flags no longer
+    agree with the current interval.
+
+    Catalogue entries are **deactivated, never deleted** (`ActivatableModel`).
+    Results reference their test, and a report from 2026 must still resolve its
+    analyte name in 2031.
+    """
 
     code = models.CharField(max_length=64, unique=True)
     name = models.CharField(max_length=255)
@@ -19,6 +30,14 @@ class TestDefinition(IdentifiedModel, ActivatableModel):
     )
     units = models.CharField(max_length=64, null=True, blank=True)
     tat_hours = models.FloatField("turnaround target (hours)", null=True, blank=True)
+    #: JSON rather than four columns because the legacy Drizzle schema stored
+    #: it that way and several key spellings are in the wild — see
+    #: ``_range_value``, which accepts all of them. New rows should use the
+    #: canonical keys.
+    #:
+    #: Any key may be absent, meaning *unbounded on that side*, not zero. A
+    #: one-sided interval is normal: most tumour markers have only an upper
+    #: limit.
     reference_range = models.JSONField(
         null=True,
         blank=True,
@@ -48,6 +67,14 @@ class TestDefinition(IdentifiedModel, ActivatableModel):
     # ── Reference range helpers ──────────────────────────────────────────────
 
     def _range_value(self, *keys: str) -> float | None:
+        """First of ``keys`` present in the stored interval, as a float.
+
+        Several spellings survive from the legacy schema (``min``/``low``/
+        ``lowNormal``), so each accessor lists its synonyms in preference
+        order. A non-numeric value is treated as absent rather than raising:
+        a mistyped catalogue entry must not break result entry for every
+        patient on the bench.
+        """
         data = self.reference_range or {}
         for key in keys:
             value = data.get(key)
@@ -85,8 +112,17 @@ class TestDefinition(IdentifiedModel, ActivatableModel):
     def evaluate(self, value) -> str:
         """Classify a numeric result against this test's reference range.
 
-        Unlike the legacy helper, a one-sided range (only a lower or only an
-        upper bound) is honoured instead of being treated as 'Normal'.
+        Critical limits are checked **before** the reference interval, so a
+        result outside both is reported as critical rather than merely high —
+        the order matters and reversing it would silently downgrade panic
+        values.
+
+        A one-sided range (only a lower or only an upper bound) is honoured.
+        The legacy helper treated a missing bound as "no opinion" and returned
+        Normal, so every tumour marker came back unflagged.
+
+        A non-numeric value returns Normal rather than raising: qualitative
+        results ("Not detected") legitimately reach here.
         """
         try:
             numeric = float(value)
@@ -143,7 +179,20 @@ class OrderQuerySet(models.QuerySet):
 
 
 class Order(IdentifiedModel):
-    """A test request for one patient, identified by its accession number."""
+    """A test request for one patient, identified by its accession number.
+
+    The accession number is the laboratory's own identifier and is what appears
+    on the tube, the worklist and every analyser exchange. It is allocated
+    under a PostgreSQL advisory lock held for the calling transaction (see
+    ``apps.laboratory.services.generate_accession_number``) because two
+    concurrent requests previously received the same number.
+
+    Status is a single field rather than a state machine, and transitions are
+    enforced in the service layer. Anything reading status directly should
+    treat these as ordered: Pending → Received → In Progress → Resulted →
+    Technically Validated → Clinically Verified → Completed, with Rejected and
+    Cancelled as terminal side exits.
+    """
 
     patient = models.ForeignKey("patients.Patient", on_delete=models.PROTECT, related_name="orders")
     accession_number = models.CharField(max_length=32, unique=True)
@@ -192,7 +241,13 @@ class Order(IdentifiedModel):
 
     @property
     def turnaround_hours(self) -> float | None:
-        """Elapsed hours from order to completion, or to now if still open."""
+        """Elapsed hours from order to completion, or to now if still open.
+
+        Measured from the order timestamp, not from specimen receipt, so it is
+        the interval the requesting clinician actually experiences. An open
+        order keeps growing, which is what makes a breach visible before it is
+        finished rather than after.
+        """
         end = self.completed_at or timezone.now()
         if not self.timestamp:
             return None
@@ -220,7 +275,16 @@ class Result(IdentifiedModel):
     """One analyte result for one order.
 
     ``REPORT_TEST_ID`` is a reserved pseudo test used to carry report-level
-    narrative comments, preserved from the legacy data model.
+    narrative comments, preserved from the legacy data model. Rows with that
+    key have no analyte, no numeric value and no verifier, so **anything
+    iterating results must skip them** — ``is_report_row`` exists for exactly
+    that, and forgetting it is the most common bug in this area.
+
+    ``value`` is the authoritative text; ``numeric_value`` is a shadow column
+    kept in step by ``save``. Delta checks, trending and every decision rule
+    read the shadow, so a write that bypasses ``save()`` — ``bulk_create``,
+    ``QuerySet.update`` — leaves them blind to the result. `check_workflows`
+    reports that specific drift.
     """
 
     REPORT_TEST_ID = "REPORT"
@@ -263,6 +327,10 @@ class Result(IdentifiedModel):
     def save(self, *args, **kwargs):
         # Keep the numeric shadow column in step with the stored text value so
         # trending and delta checks never have to re-parse strings.
+        #
+        # Deliberately unconditional: a corrected result that becomes
+        # non-numeric ("haemolysed" replacing 6.9) must clear the shadow, or
+        # the old number goes on driving deltas for a value nobody reported.
         if self.value is None or self.value == "":
             self.numeric_value = None
         else:
@@ -273,6 +341,16 @@ class Result(IdentifiedModel):
         super().save(*args, **kwargs)
 
     def recompute_flags(self) -> list[str]:
+        """Re-derive this result's flags from the catalogue interval.
+
+        Does **not** save — the caller decides, because flags are usually
+        computed inside a larger transaction that also writes the value.
+
+        Only catalogue limits are applied here; the demographic interval is
+        applied by the clinical engine, which has the patient in scope. A
+        result with no test or no numeric value has no flags rather than an
+        empty-string flag.
+        """
         if self.test is None or self.numeric_value is None:
             return []
         flag = self.test.evaluate(self.numeric_value)
@@ -281,7 +359,14 @@ class Result(IdentifiedModel):
 
 
 class ResultSignature(IdentifiedModel):
-    """Electronic signature captured at technical or clinical validation."""
+    """Electronic signature captured at technical or clinical validation.
+
+    Distinct from :class:`apps.compliance.models.ElectronicSignature`, and both
+    are written. This one is the laboratory-facing record printed on the
+    report's signature manifest; that one is the Part 11 record binding the
+    signature to a content hash and an audit sequence. Keeping them separate
+    means a change to report layout cannot disturb the regulatory record.
+    """
 
     class SignatureType(models.TextChoices):
         TECHNICAL = "technical", "Technical"
@@ -303,7 +388,18 @@ class ResultSignature(IdentifiedModel):
 
 
 class SpecimenReceiving(IdentifiedModel):
-    """Sample reception, condition assessment and rejection."""
+    """Sample reception, condition assessment and rejection.
+
+    The pre-analytical gate, and where most laboratory errors are actually
+    caught. ``condition`` is an assessment of the sample; ``status`` is the
+    decision taken about it. They are separate because a marginal sample is
+    frequently still run, with the condition noted on the report — and
+    autoverification refuses anything not received as Acceptable.
+
+    A rejection requires a ``rejection_reason`` so the requester can be told
+    what to recollect; "rejected" with no reason produces a second useless
+    sample.
+    """
 
     class Condition(models.TextChoices):
         ACCEPTABLE = "Acceptable", "Acceptable"

@@ -1,3 +1,4 @@
+"""Chargeable items and invoices."""
 from django.apps import AppConfig
 
 

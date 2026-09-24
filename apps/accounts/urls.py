@@ -1,3 +1,11 @@
+"""URL routes for the accounts application: sign-in, two-factor, single sign-on, users and record locks.
+
+Ordering matters here. ``CrudResource.urls()`` ends each resource with a
+``<str:pk>/`` pattern, which matches **any** single path segment — so a
+resource mounted at a prefix that is a parent of another's will swallow it.
+Anything more specific must be listed first, and several entries below are
+placed deliberately rather than alphabetically.
+"""
 from django.urls import path
 
 from apps.accounts import forms as account_forms

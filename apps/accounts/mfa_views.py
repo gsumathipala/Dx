@@ -56,6 +56,12 @@ def _clear(request) -> None:
 
 
 def _pending_user(request):
+    """The half-signed-in user, if the challenge has not timed out.
+
+    Returns None once the window has passed, which sends the browser back to
+    the start. Leaving a password-verified session open indefinitely would make
+    the second factor a formality.
+    """
     user_id = request.session.get(PENDING_USER)
     started = request.session.get(PENDING_SINCE)
     if not user_id or not started:
@@ -175,6 +181,7 @@ def status(request):
 
 @require_POST
 def regenerate_recovery_codes(request):
+    """Issue a fresh set, invalidating every previous code."""
     if mfa.device_for(request.user) is None:
         messages.error(request, "Set up an authenticator first.")
         return redirect("accounts:mfa_status")
@@ -225,6 +232,7 @@ def disable(request):
 
 
 def _record(label: str, user) -> None:
+    """Audit an MFA state change. Written synchronously — it is a security event."""
     from apps.audit.recorder import record
     from apps.common.constants import AuditAction
 

@@ -1,3 +1,4 @@
+"""Dashboards, the exception queue, continuity, observability and settings."""
 from django.apps import AppConfig
 
 

@@ -8,6 +8,13 @@ from apps.common.models import ActivatableModel, IdentifiedModel
 
 
 class InventoryItem(IdentifiedModel):
+    """A reagent or consumable, with its lot and expiry.
+
+    Lot and expiry are the regulated part, not the stock count. CLIA and CAP
+    both require a result to be traceable to the reagent lot that produced it,
+    which is why consumption is recorded per test rather than per delivery.
+    """
+
     name = models.CharField(max_length=255)
     lot_number = models.CharField(max_length=64, null=True, blank=True)
     expiration_date = models.DateField(null=True, blank=True)
@@ -43,6 +50,13 @@ class InventoryItem(IdentifiedModel):
 
 
 class InventoryTransaction(IdentifiedModel):
+    """Every movement in or out, so stock is derived rather than asserted.
+
+    A running total that is edited directly cannot be reconciled when it drifts.
+    Recording the movements means the balance is always explicable, and an
+    unexpected consumption can be traced to the test that caused it.
+    """
+
     item = models.ForeignKey(InventoryItem, on_delete=models.CASCADE, related_name="transactions")
     change = models.IntegerField(help_text="Positive for restock, negative for consumption")
     reason = models.CharField(max_length=255)
@@ -80,6 +94,14 @@ class Recipe(IdentifiedModel, ActivatableModel):
 
 
 class ProductionRun(IdentifiedModel):
+    """A batch of media or reagent manufactured in-house.
+
+    In-house manufacture makes the laboratory the manufacturer, so the batch
+    needs its own lot number, its inputs recorded, and a release decision
+    before use — the same obligations that arrive with a purchased reagent,
+    only nobody else is discharging them.
+    """
+
     class Status(models.TextChoices):
         SCHEDULED = "Scheduled", "Scheduled"
         IN_PROGRESS = "In Progress", "In progress"

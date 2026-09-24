@@ -1,3 +1,4 @@
+"""Reagents, lots, stock movements and in-house manufacturing."""
 from django.apps import AppConfig
 
 

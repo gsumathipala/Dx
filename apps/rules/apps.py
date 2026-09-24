@@ -1,3 +1,4 @@
+"""Laboratory-authored decision rules and guarded autoverification."""
 from django.apps import AppConfig
 
 

@@ -1,3 +1,4 @@
+"""The patient registry and consolidated record."""
 from django.apps import AppConfig
 
 

@@ -1,4 +1,10 @@
-"""Forms for accessioning, receiving and result entry."""
+"""Forms for accessioning, receiving and result entry.
+
+``ResultEntryForm`` is the one to read first: it is built dynamically from the
+tests on an order, so its fields do not exist until ``__init__`` has run. That
+is why it is a plain ``Form`` rather than a ``ModelForm`` and why ``values()``
+exists to map the generated field names back onto test ids.
+"""
 from __future__ import annotations
 
 from django import forms

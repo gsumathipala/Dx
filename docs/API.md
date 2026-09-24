@@ -8,7 +8,7 @@ of them exist because the system holds patient data under CLIA, CAP, ISO 15189,
 by accident.
 
 Related: [USER_MANUAL.md](USER_MANUAL.md) · [REGULATORY.md](REGULATORY.md) ·
-[INSTALL.md](../INSTALL.md)
+[CUSTOMISING.md](CUSTOMISING.md) · [INSTALL.md](../INSTALL.md)
 
 ---
 

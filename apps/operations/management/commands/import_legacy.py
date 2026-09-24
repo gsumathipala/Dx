@@ -48,6 +48,7 @@ def parse_datetime(value):
 
 
 def parse_date(value):
+    """A legacy date, or None. Dates and datetimes are stored interchangeably."""
     stamp = parse_datetime(value)
     if stamp:
         return stamp.date()
@@ -60,6 +61,12 @@ def parse_date(value):
 
 
 def parse_json(value, default=None):
+    """Decode a JSON text column, falling back rather than raising.
+
+    Legacy JSON columns hold a mixture of proper JSON, single-quoted Python
+    repr, and empty strings. Anything undecodable yields the default, and the
+    caller reports it.
+    """
     if value in (None, ""):
         return default
     if isinstance(value, (dict, list)):
@@ -71,12 +78,14 @@ def parse_json(value, default=None):
 
 
 def parse_bool(value, default=False):
+    """SQLite booleans arrive as 0/1, "0"/"1", "true"/"false" or NULL."""
     if value is None:
         return default
     return bool(int(value)) if str(value).isdigit() else bool(value)
 
 
 def parse_decimal(value, default="0.00"):
+    """A monetary value as Decimal. Never float — prices must not drift."""
     try:
         return Decimal(str(value))
     except (InvalidOperation, TypeError):
@@ -92,6 +101,14 @@ class Command(BaseCommand):
                             help="Report what would be imported without writing.")
 
     def handle(self, *args, **options):
+        """Import the whole database in one transaction.
+
+        Everything happens inside a single ``atomic`` block, so a failure
+        halfway through leaves the target untouched rather than half-migrated —
+        a partially-imported laboratory is far harder to recover than an
+        un-imported one. ``--dry-run`` uses the same path and rolls back at the
+        end, so the rehearsal exercises exactly the code the real run will.
+        """
         path = Path(options["sqlite"])
         if not path.exists():
             raise CommandError(f"Legacy database not found: {path}")
@@ -140,6 +157,14 @@ class Command(BaseCommand):
     # -- Import sequence (ordered so foreign keys resolve) --------------------
 
     def _import_all(self, connection):
+        """Import each table in dependency order.
+
+        The order is load-bearing: every step resolves foreign keys through
+        ``_resolve`` against what earlier steps imported, so moving a call
+        earlier silently produces rows with missing relations rather than an
+        error. Departments before users, tests and patients before orders,
+        orders before specimens and results.
+        """
         self._departments(connection)
         self._users(connection)
         self._tests(connection)
@@ -183,10 +208,26 @@ class Command(BaseCommand):
         return instance
 
     def _resolve(self, kind: str, legacy_id):
+        """Look up an already-imported instance by its *legacy* id.
+
+        Returns None rather than raising when the referenced row was never
+        imported — the caller decides whether a missing relation is fatal or
+        merely worth reporting, and for most of this schema it is the latter.
+        """
         mapping = self.ids.get(kind, {})
         return mapping.get(legacy_id)
 
     def _rows(self, connection, table):
+        """Every row of a legacy table, or nothing if the table is absent.
+
+        The legacy schema changed over its life, so an older export is missing
+        tables a newer one has. A missing table is reported and skipped; a
+        missing *row* is an error.
+
+        The table name is interpolated into the SQL, which is safe only because
+        every caller passes a literal and the name is checked against
+        ``sqlite_master`` first. Do not let a user-supplied name reach here.
+        """
         if table not in self.tables:
             if self.verbosity:
                 self.stdout.write(self.style.WARNING(f"  (no {table} table in source)"))
@@ -194,6 +235,7 @@ class Command(BaseCommand):
         return list(connection.execute(f"SELECT * FROM {table}"))
 
     def _track(self, table, count):
+        """Record how many rows came from a table, for the summary and the audit event."""
         self.counts[table] = count
         if self.verbosity:
             self.stdout.write(f"  {table}: {count}")
@@ -622,6 +664,12 @@ class Command(BaseCommand):
         self._track("settings", count)
 
     def _report(self):
+        """Print the summary, listing every row that could not be converted.
+
+        Problems are reported in full rather than counted. A migration that
+        says "1,482 rows imported, 6 skipped" without saying which six is a
+        migration nobody can sign off.
+        """
         if not self.verbosity:
             return
         total = sum(self.counts.values())

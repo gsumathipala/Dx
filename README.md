@@ -10,6 +10,146 @@ recorded.
 
 ---
 
+## How the programme fits together
+
+Every box is a Django application under `apps/`. Arrows are dependencies that
+matter; the audit trail is deliberately drawn last because everything writes to
+it and nothing reads from it in normal operation.
+
+```mermaid
+flowchart TB
+    subgraph EXT["Outside the laboratory"]
+        HIS["Hospital order entry<br/>HL7 ORM · ADT"]
+        ANA["Analysers<br/>ASTM · HL7 MLLP · host query"]
+        EHR["EHR / ward systems<br/>FHIR · HL7 ORU · REST · webhooks"]
+    end
+
+    subgraph WORK["Clinical workflow"]
+        PAT["patients<br/><small>registry, merges</small>"]
+        LAB["laboratory<br/><small>orders, specimens, results,<br/>two-stage authorisation, labels</small>"]
+        REP["reporting<br/><small>reports, cumulative,<br/>distribution, amendments</small>"]
+    end
+
+    subgraph DECIDE["Decision support"]
+        CLIN["clinical<br/><small>delta checks, critical values,<br/>reflex, reference intervals</small>"]
+        RULES["rules<br/><small>laboratory-authored rules,<br/>guarded autoverification</small>"]
+    end
+
+    subgraph ASSURE["Quality and compliance"]
+        QC["quality<br/><small>Westgard QC, equipment,<br/>calibration</small>"]
+        COMP["compliance<br/><small>Part 11 signatures, competency,<br/>CAPA, PT, GDPR rights</small>"]
+    end
+
+    subgraph RUN["Operations"]
+        OPS["operations<br/><small>exception queue, TAT, KPIs,<br/>downtime, integrity checks</small>"]
+        INV["inventory<br/><small>reagents, lots, manufacturing</small>"]
+        SPEC["specialty<br/><small>histopathology, microbiology</small>"]
+        BILL["billing"]
+    end
+
+    subgraph PLATFORM["Platform"]
+        ACC["accounts<br/><small>roles, SSO, MFA, record locks,<br/>PHI barrier</small>"]
+        INTEROP["interop<br/><small>HL7 in/out, FHIR, LOINC,<br/>ICD-10, host query</small>"]
+        API["api<br/><small>REST v1, scopes, webhooks</small>"]
+        HELP["help<br/><small>80 topics, in-application</small>"]
+        COMMON["common<br/><small>CRUD factory, base models</small>"]
+    end
+
+    AUDIT["audit<br/><b>immutable hash-chained trail</b><br/><small>append-only, enforced by database triggers</small>"]
+
+    HIS -->|orders, patients| INTEROP
+    ANA <-->|results, work lists| INTEROP
+    INTEROP --> LAB
+    INTEROP --> PAT
+    LAB --> REP
+    REP --> EHR
+    API --> EHR
+
+    PAT --> LAB
+    LAB --> CLIN
+    CLIN --> RULES
+    RULES -->|autoverify, comments, flags| LAB
+    QC -.->|lockout gate| LAB
+    COMP -.->|competency, signature gate| LAB
+    RULES --> OPS
+    CLIN --> OPS
+    LAB --> INV
+    LAB --> SPEC
+    LAB --> BILL
+    ACC --> LAB
+    API --> LAB
+    COMMON --> LAB
+
+    LAB ==> AUDIT
+    PAT ==> AUDIT
+    RULES ==> AUDIT
+    COMP ==> AUDIT
+    ACC ==> AUDIT
+    OPS ==> AUDIT
+
+    classDef ext fill:#eef2ff,stroke:#6366f1,color:#1e1b4b
+    classDef work fill:#ecfdf5,stroke:#10b981,color:#064e3b
+    classDef decide fill:#fef3c7,stroke:#f59e0b,color:#78350f
+    classDef assure fill:#fce7f3,stroke:#ec4899,color:#831843
+    classDef run fill:#f1f5f9,stroke:#64748b,color:#0f172a
+    classDef plat fill:#e0f2fe,stroke:#0ea5e9,color:#0c4a6e
+    classDef audit fill:#1e293b,stroke:#0f172a,color:#f8fafc
+
+    class HIS,ANA,EHR ext
+    class PAT,LAB,REP work
+    class CLIN,RULES decide
+    class QC,COMP assure
+    class OPS,INV,SPEC,BILL run
+    class ACC,INTEROP,API,HELP,COMMON plat
+    class AUDIT audit
+```
+
+### The path a specimen takes
+
+```mermaid
+flowchart LR
+    A["Request<br/><small>keyed, or HL7 from the ward</small>"]
+    B["Accession<br/><small>collision-safe number,<br/>barcode label printed</small>"]
+    C["Collect<br/><small>two identifiers checked</small>"]
+    D["Receive<br/><small>condition assessed,<br/>rejected with a reason</small>"]
+    E["Analyse<br/><small>analyser asks what to run</small>"]
+    F["Result<br/><small>delta, critical, reflex,<br/>decision rules</small>"]
+    G{"Autoverify?"}
+    H["Technical validation<br/><small>competency + QC gate</small>"]
+    I["Clinical verification<br/><small>Part 11 signature,<br/>not the same person</small>"]
+    J["Report<br/><small>signature manifest,<br/>FHIR · HL7 · PDF</small>"]
+
+    A --> B --> C --> D --> E --> F --> G
+    G -->|"nine guardrails pass"| I
+    G -->|"anything flagged,<br/>critical, delta, QC out"| H
+    H --> I --> J
+
+    F -.->|"critical value"| K["Telephone + read-back"]
+    D -.->|"rejected"| L["Exception queue"]
+    H -.->|"QC failed"| L
+
+    classDef step fill:#ecfdf5,stroke:#10b981,color:#064e3b
+    classDef gate fill:#fef3c7,stroke:#f59e0b,color:#78350f
+    classDef exc fill:#fee2e2,stroke:#ef4444,color:#7f1d1d
+    class A,B,C,D,E,F,H,I,J step
+    class G gate
+    class K,L exc
+```
+
+### By the numbers
+
+| | |
+| --- | --- |
+| Django applications | 17 |
+| Database tables | 101 |
+| Routes | 135 |
+| Templates | 81 |
+| Python | ~30,000 lines |
+| Tests | 653 |
+| Help topics, in-application | 81 |
+
+---
+
 ## What it does
 
 **Clinical workflow** — patient registry, accessioning with collision-safe
@@ -134,13 +274,16 @@ catalogue with reference and critical limits, acceptable QC, patients and
 orders at each stage of the workflow. It prints the sign-in credentials, which
 are also listed in [INSTALL.md](INSTALL.md#demonstration-sign-in-credentials).
 
-Full setup instructions, the demonstration credentials, troubleshooting and a
-pre-production checklist are in **[INSTALL.md](INSTALL.md)**. How to use the
+Full setup instructions, the demonstration credentials (including the
+installer account), troubleshooting and a pre-production checklist are in
+**[INSTALL.md](INSTALL.md)**. Turning a fresh installation into *your*
+laboratory — catalogue, intervals, rules, QC, instruments, branding, and an
+honest list of what needs code — is **[docs/CUSTOMISING.md](docs/CUSTOMISING.md)**. How to use the
 system, by role and by task, is in **[docs/USER_MANUAL.md](docs/USER_MANUAL.md)**.
 The API surface and the rules any new endpoint must follow are in
 **[docs/API.md](docs/API.md)**.
 
-A full help library — 76 topics covering every part of the system, with
+A full help library — 81 topics covering every part of the system, with
 tutorials and the laboratory practice behind each feature — is built into the
 application at **Help** in the sidebar, or `/help/`.
 
@@ -161,6 +304,23 @@ python manage.py verify_audit_chain --checkpoint
 ```
 
 Exits non-zero if the chain fails, so it can gate a nightly compliance job.
+
+### Checking the workflows are self-consistent
+
+```bash
+python manage.py check_workflows          # human-readable
+python manage.py check_workflows --json   # for a monitoring job
+```
+
+The test suite proves each piece behaves correctly. This asks a different
+question: does the data in *this* installation contradict itself? A completed
+order with an unverified analyte, an analyte approved for autoverification with
+no QC target, a bidirectional interface with an empty code map that answers
+analysers in a vocabulary they do not speak — none of those is a bug in the
+code, all of them are wrong, and none surfaces on any screen.
+
+Exits non-zero on anything at `ERROR`. Run it after an upgrade, after a data
+migration, and before an inspection.
 
 ### Instrument interface
 

@@ -17,6 +17,11 @@ logger = logging.getLogger("dx.instrument")
 
 
 def build_parser() -> argparse.ArgumentParser:
+    """Command-line options, each also settable from the environment.
+
+    Environment defaults matter because this runs as a service on a laboratory
+    workstation, where the arguments live in a unit file nobody wants to edit.
+    """
     parser = argparse.ArgumentParser(
         prog="dx-instrument-server",
         description="Accept analyser connections and forward results to Dx.",
@@ -46,6 +51,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Start the listener, the spool replay loop, and wait for a signal.
+
+    Refuses to start without an ingest token rather than running and failing on
+    every delivery — a listener that accepts results it cannot forward looks
+    healthy while losing everything.
+    """
     args = build_parser().parse_args(argv)
 
     logging.basicConfig(

@@ -32,6 +32,13 @@ class InstrumentHandler(socketserver.BaseRequestHandler):
         logger.info("Connection from %s", self.client_address[0])
 
     def handle(self) -> None:
+        """Read from the analyser until it disconnects or goes quiet.
+
+        One thread per connection, held open for the whole session: analysers
+        connect once and stream for hours, so connection-per-message would
+        thrash. The idle timeout is the only thing that reclaims a socket an
+        analyser abandoned without closing, which they do routinely.
+        """
         while True:
             try:
                 chunk = self.request.recv(4096)
@@ -54,6 +61,18 @@ class InstrumentHandler(socketserver.BaseRequestHandler):
     # ── ASTM ─────────────────────────────────────────────────────────────────
 
     def _handle_astm(self) -> None:
+        """Drive the ASTM ENQ/ACK handshake over whatever has arrived so far.
+
+        TCP gives no message boundaries, so this is a state machine over a
+        growing buffer: it returns as soon as it needs more bytes, and is
+        called again on the next read. A frame that fails its checksum is
+        answered NAK so the analyser retransmits — a corrupted result is worse
+        than a missing one.
+
+        An unrecognised leading byte is discarded to resynchronise rather than
+        raising, because one noisy byte on a serial-to-TCP bridge would
+        otherwise drop an entire run.
+        """
         while self.buffer:
             if self.buffer.startswith(ENQ):
                 self.buffer = self.buffer[1:]
@@ -85,6 +104,7 @@ class InstrumentHandler(socketserver.BaseRequestHandler):
             self.buffer = self.buffer[1:]
 
     def _flush_astm(self) -> None:
+        """EOT means the analyser has finished: assemble and dispatch the records."""
         if not self.astm_payload:
             return
         payload, self.astm_payload = "\r".join(self.astm_payload), []
@@ -130,6 +150,12 @@ class InstrumentHandler(socketserver.BaseRequestHandler):
     # ── HL7 / MLLP ───────────────────────────────────────────────────────────
 
     def _handle_hl7(self) -> None:
+        """Process whole MLLP blocks, acknowledging each one.
+
+        Every message gets a reply. An HL7 sender that receives no
+        acknowledgement retries indefinitely, so a silently dropped message
+        becomes an infinite loop rather than a lost result.
+        """
         messages, self.buffer = extract_mllp(self.buffer)
         for message in messages:
             parsed = parse(message, "hl7")
@@ -175,6 +201,7 @@ class InstrumentHandler(socketserver.BaseRequestHandler):
 
     @staticmethod
     def _hl7_ack(message: str, accepted: bool) -> str:
+        """Build an ACK echoing the sender's control id, which is how it correlates."""
         control_id = ""
         for segment in message.replace("\n", "\r").split("\r"):
             if segment.startswith("MSH"):
@@ -192,6 +219,13 @@ class InstrumentHandler(socketserver.BaseRequestHandler):
     # ── Delivery ─────────────────────────────────────────────────────────────
 
     def _dispatch(self, payload: str, protocol: str) -> bool:
+        """Parse a complete message and forward it, or answer a query.
+
+        Returns whether the message was accepted, which becomes the HL7
+        acknowledgement code. A message with no accession number is refused
+        rather than guessed at: attaching a result to the wrong specimen is the
+        worst outcome available here.
+        """
         parsed = parse(payload, protocol)
 
         if parsed.is_query:
@@ -212,6 +246,13 @@ class InstrumentHandler(socketserver.BaseRequestHandler):
 
 
 class InstrumentServer(socketserver.ThreadingTCPServer):
+    """The listener. Configuration lives here and is read by each handler.
+
+    ``daemon_threads`` so a shutdown is not blocked by an analyser holding a
+    connection open; ``allow_reuse_address`` so a restart does not wait out
+    TIME_WAIT, which on a laboratory workstation means a minute of lost results.
+    """
+
     allow_reuse_address = True
     daemon_threads = True
 

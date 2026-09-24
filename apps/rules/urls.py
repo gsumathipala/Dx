@@ -1,3 +1,11 @@
+"""URL routes for the decision rules: the builder, approval and the firing log.
+
+Ordering matters here. ``CrudResource.urls()`` ends each resource with a
+``<str:pk>/`` pattern, which matches **any** single path segment — so a
+resource mounted at a prefix that is a parent of another's will swallow it.
+Anything more specific must be listed first, and several entries below are
+placed deliberately rather than alphabetically.
+"""
 from django.urls import path
 
 from apps.rules import views

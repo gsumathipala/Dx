@@ -31,7 +31,7 @@
                 {% for date in dates %}
                     {% with result=by_date|dx_get:date %}
                         <td>{% if result %}{{ result.value }}
-                            {% for flag in result.result_flags %}<span class="badge badge-warn">{{ flag|slice:":1" }}</span>{% endfor %}
+                            {% for flag in result.result_flags %}{{ flag|flag_badge }}{% endfor %}
                         {% else %}<span class="muted">—</span>{% endif %}</td>
                     {% endwith %}
                 {% endfor %}

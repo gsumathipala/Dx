@@ -36,6 +36,12 @@ MAX_PAGE_SIZE = 200
 
 
 def _body(request) -> dict:
+    """Parse a JSON object body, or raise a client-readable ApiError.
+
+    A non-object body (a bare list or string) is refused: every write endpoint
+    here takes named fields, and accepting a list would fail later with a less
+    useful message.
+    """
     if not request.body:
         return {}
     try:
@@ -48,6 +54,11 @@ def _body(request) -> dict:
 
 
 def _required(payload: dict, *names: str) -> list:
+    """Return the named fields, refusing with *all* the missing ones at once.
+
+    Reporting one missing field per round trip makes an integration take five
+    attempts to discover what it needs.
+    """
     missing = [name for name in names if not payload.get(name)]
     if missing:
         raise ApiError(
@@ -58,6 +69,11 @@ def _required(payload: dict, *names: str) -> list:
 
 
 def _page(request, queryset, serialise) -> JsonResponse:
+    """Paginate a queryset into the documented envelope.
+
+    A page past the end returns an empty ``data`` array rather than 404, so a
+    client can walk a collection until it is empty without handling an error.
+    """
     try:
         size = min(int(request.GET.get("page_size", DEFAULT_PAGE_SIZE)), MAX_PAGE_SIZE)
         number = int(request.GET.get("page", 1))
@@ -88,6 +104,11 @@ def _page(request, queryset, serialise) -> JsonResponse:
 
 
 def _since(request):
+    """Parse the ``?since=`` filter, refusing anything unparseable.
+
+    Silently ignoring a malformed timestamp would return the whole collection,
+    which an incremental sync would read as "everything changed".
+    """
     raw = request.GET.get("since")
     if not raw:
         return None
@@ -344,7 +365,11 @@ def order_create(request):
 
 
 def _attach_diagnoses(order, diagnoses) -> None:
-    """Attach ICD-10 diagnoses to a new order, rejecting unknown codes."""
+    """Attach ICD-10 diagnoses to a new order, rejecting unknown codes.
+
+    Raises inside the caller's transaction, so an unknown code rolls back the
+    whole order rather than leaving one with some of its indications.
+    """
     from apps.interop.models import Icd10Code
     from apps.laboratory.models import OrderDiagnosis
 

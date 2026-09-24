@@ -24,6 +24,14 @@ LAB = tuple(LAB_STAFF_ROLES)
 
 
 class RuleListView(DxListView):
+    """Every rule with its live/draft state.
+
+    ``status_label`` is shown rather than ``active``, because a rule can be
+    enabled and still not firing — editing one withdraws its approval, and
+    that distinction is the single most common source of "why did my rule not
+    fire?".
+    """
+
     model = Rule
     required_roles = LAB
     page_title = "Decision rules"
@@ -280,6 +288,12 @@ class ExecutionListView(DxListView):
 
 @role_required(*LAB)
 def execution_detail(request, pk):
+    """One firing: the facts the rule saw, what it did, and any refusals.
+
+    This is the screen that answers "why does this report say that?". The facts
+    are redacted for roles barred from patient data — an age, a sex, a
+    diagnosis code and an analyte value together identify somebody.
+    """
     execution = get_object_or_404(
         RuleExecution.objects.select_related("rule", "order", "result", "signature", "overridden_by"),
         pk=pk,

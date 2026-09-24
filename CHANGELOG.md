@@ -2,6 +2,89 @@
 
 All notable changes to the Dx Clinical LIS project will be documented in this file.
 
+## [v3.2.2] - 2026-09-24
+### Documentation for people who have just downloaded this
+
+### Added
+- **`docs/CUSTOMISING.md`** — turning a fresh installation into *your*
+  laboratory, in the order to do it: accounts and single sign-on, the test
+  catalogue, reference and critical limits, decision rules and automatic
+  verification, quality control, benches and routing, reports, instruments,
+  the regulatory switches and branding. Ends with a commissioning checklist,
+  and includes an honest table of the few things that genuinely need a code
+  change rather than a screen.
+- **`seed_demo` now creates the installer account**, through `create_installer`
+  rather than by hand, so it goes through the same path a real installation
+  uses. The installer cannot be created through the web interface by design, so
+  without this an evaluator would never see the separation of duties that is
+  one of the more unusual things here.
+- The installer is listed in INSTALL.md's credentials table alongside the other
+  seven accounts, with what it can and cannot reach, plus a short "try signing
+  in as the installer" section — the 403 on `/patients/` is the demonstration.
+- **An organisational chart of the whole programme on the repository front
+  page**: application dependencies and the path a specimen takes from request
+  to report, as Mermaid so GitHub renders it and it stays in version control.
+
+### Changed
+- **A comment and docstring pass over the whole codebase**, aimed at somebody
+  debugging it who did not write it. `apps/clinical/models.py` went from zero
+  explanatory comments to thirty-seven; module docstrings added to every
+  `urls.py`, `apps.py` and the WSGI/ASGI entry points; and docstrings added
+  where the *why* was missing — the ordering constraint in
+  `import_legacy._import_all`, why the audit recorder must not start under the
+  test runner, why `Workstation.utilisation` reports 1.0 rather than 0.0 when
+  throughput is undeclared, why `Result` keeps a numeric shadow column.
+  Deliberately not added to Django boilerplate (`Meta`, `TextChoices`), where a
+  docstring would be noise.
+
+### Fixed
+- A docstring inserted ahead of an existing one left `from __future__ import
+  annotations` no longer first in `apps/laboratory/forms.py`. Caught because
+  `ast.parse` accepts this and `compile` does not — the file-wide check now
+  uses `compile`.
+
+## [v3.2.1] - 2026-09-24
+### Workflow integrity checking, and two rendering defects it sat next to
+
+### Added
+- **`manage.py check_workflows`** and `apps/operations/integrity.py`. The test
+  suite proves each piece behaves correctly; this asks whether the data in a
+  given installation contradicts itself — which is a different question, and
+  the one that matters after a migration. Twenty-two checks across the audit
+  chain, accessioning, results and verification, critical values, QC and
+  autoverification configuration, decision rules, interfaces and API clients,
+  continuity and compliance, and the test catalogue. `ERROR` means the data
+  contradicts itself and exits non-zero; `WARN` means operationally wrong.
+  Every finding names the records it found, capped, so it is actionable.
+- An **organisational chart of the whole programme** on the repository front
+  page: application dependencies, and the path a specimen takes from request
+  to report. Mermaid, so it renders on GitHub and stays in version control.
+
+### Fixed
+- **Critical result flags rendered in the muted style.** `status_badge` had no
+  mapping for any result flag, so `Critical High` and the rest fell through to
+  the same grey used for "Draft" — on the screen where somebody decides whether
+  to telephone a ward. Flags now carry their proper tone, a filled `critical`
+  style, and a directional marker (`↑↑`, `↓↓`) so the meaning survives
+  greyscale and colour vision deficiency.
+- **The cumulative report could not distinguish a critical high from a critical
+  low.** It kept only the first letter of the flag name, so both rendered as an
+  identical amber "C". Now uses the HL7 Table 0078 codes `HH`, `LL`, `H`, `L`,
+  which additionally makes the screen agree with what the HL7 export emits.
+- **`seed_demo` created orders that carried results with no specimen**, leaving
+  the demonstration data with a broken chain of custody that
+  `check_workflows` correctly reports. Seeded orders now accession a specimen.
+- Two false positives in the integrity checks themselves, found by running them
+  against real data: the `REPORT` narrative pseudo-result was reported as an
+  unattributed verified result, and orders legitimately awaiting collection
+  were reported as missing a specimen.
+
+### Changed
+- `docs/ROADMAP.md` item 1 corrected rather than deleted. It claimed flags were
+  colour-only, which was untrue; the actual defects were worse. The correction
+  is kept visible because a correct-sounding claim from an incomplete look is
+  harder to catch than an obviously wrong one.
+
 ## [v3.2.0] - 2026-09-16
 ### Business continuity, enterprise identity, labels and observability
 

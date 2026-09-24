@@ -20,6 +20,18 @@ class LegacyCompatibleBackend(ModelBackend):
     """
 
     def authenticate(self, request, username=None, password=None, **kwargs):
+        """Authenticate against Django hashes, legacy bcrypt, or legacy cleartext.
+
+        The Next.js implementation stored bcrypt hashes, and a handful of
+        seeded rows held cleartext. Both are still accepted so a migrated
+        laboratory can sign in on day one, and both are transparently upgraded
+        to the current hasher on first successful use — so the legacy forms
+        drain away rather than persisting indefinitely.
+
+        Returns None for every failure mode, without distinguishing them: an
+        unknown user and a wrong password must be indistinguishable to a
+        caller, or the endpoint enumerates accounts.
+        """
         if username is None or password is None:
             return None
 

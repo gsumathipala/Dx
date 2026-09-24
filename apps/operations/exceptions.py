@@ -188,6 +188,12 @@ def auto_resolve(source_key: str, note: str) -> None:
 
 
 def _sweep_critical_values() -> int:
+    """Criticals past their escalation deadline, and criticals since answered.
+
+    Both directions in one pass: raising for the overdue, and auto-resolving
+    the ones somebody has acknowledged since the last sweep — otherwise the
+    queue only ever grows.
+    """
     from apps.clinical.models import CriticalValueNotification
 
     raised = 0
@@ -226,6 +232,11 @@ def _sweep_critical_values() -> int:
 
 
 def _sweep_tat_breaches() -> int:
+    """Unresolved turnaround breaches from the last week.
+
+    Only CRITICAL breach rows; the WARNING tier is an early signal shown on the
+    turnaround screen and would drown the queue.
+    """
     from apps.operations.models import TatBreach
 
     raised = 0
@@ -253,6 +264,7 @@ def _sweep_tat_breaches() -> int:
 
 
 def _sweep_interfaces() -> int:
+    """Enabled analysers that have gone quiet, and quiet ones that resumed."""
     from apps.interop.models import InstrumentInterface
 
     raised = 0
@@ -282,6 +294,7 @@ def _sweep_interfaces() -> int:
 
 
 def _sweep_instrument_failures() -> int:
+    """Instrument messages that could not be applied, from the last three days."""
     from apps.interop.models import InstrumentMessage
 
     raised = 0
@@ -304,6 +317,7 @@ def _sweep_instrument_failures() -> int:
 
 
 def _sweep_qc_failures() -> int:
+    """Failed QC runs, which block patient results until investigated."""
     from apps.quality.models import QcRun
 
     raised = 0
@@ -333,6 +347,11 @@ def _sweep_qc_failures() -> int:
 
 
 def _sweep_webhooks() -> int:
+    """Subscribers whose deliveries have given up.
+
+    One item per webhook, not per delivery: a broken endpoint fails every
+    event, and a queue item per event would bury everything else.
+    """
     from apps.api.models import WebhookDelivery
 
     raised = 0
@@ -363,6 +382,7 @@ def _sweep_webhooks() -> int:
 
 
 def _sweep_subject_requests() -> int:
+    """GDPR requests past their statutory deadline."""
     from apps.compliance.models import DataSubjectRequest
 
     raised = 0

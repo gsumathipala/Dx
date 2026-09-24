@@ -18,6 +18,14 @@ class ControlledDocumentQuerySet(models.QuerySet):
 
 
 class ControlledDocument(IdentifiedModel):
+    """An SOP or policy under version control.
+
+    ISO 15189 §8.3 and CAP both require that staff work from the *current*
+    version of a procedure and that the laboratory can show who has read it.
+    Superseded versions are retained, not deleted — an investigation into a
+    result from last year needs the procedure as it stood last year.
+    """
+
     """A version-controlled SOP, policy or manual (ISO 15189 §8.3).
 
     Document control requires an approval step, a defined review cycle, and
@@ -104,7 +112,14 @@ class ControlledDocument(IdentifiedModel):
 
 
 class Requester(IdentifiedModel, ActivatableModel):
-    """A referring clinician, ward, clinic or external organisation."""
+    """A referring clinician, ward, clinic or external organisation.
+
+    Both the *destination* for reports and the *contact* for a critical value,
+    which is why the telephone number is on the same row as the delivery
+    preference: at 3am those are the same lookup.
+
+    Deactivated rather than deleted, because historic orders reference them.
+    """
 
     class Kind(models.TextChoices):
         GP = "GP", "General practitioner"
@@ -142,6 +157,13 @@ class Requester(IdentifiedModel, ActivatableModel):
 
 
 class DistributionRule(IdentifiedModel, ActivatableModel):
+    """How one requester's reports are delivered.
+
+    Separate from the requester so a single ward can have different routes for
+    routine and urgent work — the common case being a printed copy to the ward
+    and an HL7 feed to the record at the same time.
+    """
+
     """How a given requester's reports are delivered."""
 
     requester = models.ForeignKey(
@@ -167,6 +189,14 @@ class DistributionRule(IdentifiedModel, ActivatableModel):
 
 
 class DistributionLog(IdentifiedModel):
+    """A record that a report was sent somewhere, and whether it arrived.
+
+    Kept even when delivery fails, because "the ward says they never got it" is
+    a routine dispute and the log is the answer. Sending a report outside
+    treatment, payment or operations is additionally a disclosure and is
+    recorded as one in ``compliance.DisclosureAccounting``.
+    """
+
     class Status(models.TextChoices):
         PENDING = "Pending", "Pending"
         SENT = "Sent", "Sent"
@@ -194,6 +224,13 @@ class DistributionLog(IdentifiedModel):
 
 
 class EmailQueueEntry(IdentifiedModel):
+    """An outbound report waiting to be sent.
+
+    Queued rather than sent inline so a mail server that is slow or down
+    cannot stall the transaction that released the report. Failures stay in the
+    queue with their error rather than disappearing.
+    """
+
     class Status(models.TextChoices):
         PENDING = "Pending", "Pending"
         SENT = "Sent", "Sent"

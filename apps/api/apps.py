@@ -1,3 +1,4 @@
+"""The public JSON API, its client credentials and outbound webhooks."""
 from django.apps import AppConfig
 
 

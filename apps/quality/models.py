@@ -11,6 +11,13 @@ from apps.common.models import ActivatableModel, ActiveQuerySet, IdentifiedModel
 
 
 class RejectionCriterion(IdentifiedModel, ActivatableModel):
+    """A documented reason a specimen may be refused at reception.
+
+    A closed list rather than free text, so "how many haemolysed samples did
+    we reject last month" is a query — which is the number that drives
+    phlebotomy training.
+    """
+
     class Category(models.TextChoices):
         QUANTITY = "Quantity", "Quantity"
         QUALITY = "Quality", "Quality"
@@ -31,6 +38,13 @@ class RejectionCriterion(IdentifiedModel, ActivatableModel):
 
 
 class QcMaterial(IdentifiedModel, ActivatableModel):
+    """A control material and its lot.
+
+    The lot matters as much as the material: target mean and SD are
+    lot-specific, so a new lot needs new targets before it can be used, and
+    carrying the old ones over is a classic source of spurious QC failures.
+    """
+
     name = models.CharField(max_length=255)
     lot_number = models.CharField(max_length=64)
     expiration_date = models.DateField()
@@ -142,6 +156,13 @@ class EquipmentQuerySet(ActiveQuerySet):
 
 
 class Equipment(IdentifiedModel, ActivatableModel):
+    """An analyser or other instrument, with its service and calibration dates.
+
+    CLIA §493.1254 requires maintenance and function checks to be performed and
+    documented; the dates here are what make "is this instrument currently fit
+    to report patient results" answerable rather than assumed.
+    """
+
     class Status(models.TextChoices):
         ACTIVE = "Active", "Active"
         MAINTENANCE = "Maintenance", "Under maintenance"
@@ -184,6 +205,12 @@ class Equipment(IdentifiedModel, ActivatableModel):
 
 
 class EquipmentLog(IdentifiedModel):
+    """One maintenance, calibration or repair event.
+
+    Append-only in practice: the log is the evidence, and editing history to
+    tidy it is precisely what an inspection looks for.
+    """
+
     class Kind(models.TextChoices):
         MAINTENANCE = "Maintenance", "Maintenance"
         CALIBRATION = "Calibration", "Calibration"

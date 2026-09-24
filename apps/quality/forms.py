@@ -1,3 +1,10 @@
+"""Forms for quality control configuration and entry.
+
+The validation that matters here is on the QC *targets*: a mean and standard
+deviation entered wrongly do not fail loudly, they quietly make every Westgard
+rule meaningless — a too-large SD passes everything, a too-small one rejects
+every run until somebody turns the lockout off.
+"""
 from __future__ import annotations
 
 from django import forms

@@ -1,3 +1,4 @@
+"""Quality control, Westgard evaluation, equipment and calibration."""
 from django.apps import AppConfig
 
 

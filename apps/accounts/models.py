@@ -18,9 +18,21 @@ class ProtectedAccountError(PermissionDenied):
 
 
 class UserManager(BaseUserManager):
+    """Creates users with the legacy string primary key and a default role.
+
+    ``use_in_migrations`` matters: the installer-creation data migration calls
+    this manager, so it has to be serialisable into a migration file.
+    """
+
     use_in_migrations = True
 
     def create_user(self, username: str, password: str | None = None, **extra):
+        """Create a user. ``password=None`` produces an unusable password.
+
+        Unusable rather than blank is what a new account and an SSO-only
+        account both need: the account exists and can be granted a role, but
+        no password will ever authenticate it until one is set.
+        """
         if not username:
             raise ValueError("Users must have a username")
         extra.setdefault("role", Role.SCIENTIST)

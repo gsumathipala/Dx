@@ -1,3 +1,4 @@
+"""WSGI entry point. Used by gunicorn in every deployment."""
 import os
 
 from django.core.wsgi import get_wsgi_application

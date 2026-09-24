@@ -1,3 +1,4 @@
+"""HL7, FHIR, LOINC, ICD-10 and instrument interfacing."""
 from django.apps import AppConfig
 
 

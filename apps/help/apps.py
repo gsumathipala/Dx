@@ -1,3 +1,4 @@
+"""The in-application help library, loaded from Markdown on disk."""
 from django.apps import AppConfig
 
 

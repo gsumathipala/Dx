@@ -26,6 +26,12 @@ class BillingItem(IdentifiedModel, ActivatableModel):
 
 
 class Invoice(IdentifiedModel):
+    """A bill raised against an order.
+
+    The link to the order is what stops the one compliance failure that
+    matters here: charging for a test that was never performed.
+    """
+
     class Status(models.TextChoices):
         PENDING = "Pending", "Pending"
         PAID = "Paid", "Paid"

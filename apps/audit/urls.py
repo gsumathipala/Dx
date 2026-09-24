@@ -1,3 +1,4 @@
+"""URL routes for the audit trail: the browsable trail, chain verification and entity history."""
 from django.urls import path
 
 from apps.audit import views

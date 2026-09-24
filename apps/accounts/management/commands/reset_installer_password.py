@@ -38,6 +38,13 @@ class Command(BaseCommand):
                             help="Recorded in the audit trail.")
 
     def handle(self, *args, **options):
+        """Reset the installer's password from a shell.
+
+        The only route back in when the installer password is lost. It requires
+        shell access on the server deliberately: an administrator who could
+        reset it through a screen would simply *become* the installer, and the
+        separation of duties the role exists for would be worth nothing.
+        """
         accounts = User.objects.filter(role=Role.INSTALLER)
         if options["username"]:
             accounts = accounts.filter(username=options["username"])

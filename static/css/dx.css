@@ -127,6 +127,14 @@ table.data tbody tr:hover { background: #f8fafc; }
 .badge-danger { background: var(--danger-bg); color: var(--danger); }
 .badge-info { background: var(--info-bg); color: var(--accent-dark); }
 .badge-muted { background: #f1f5f9; color: var(--text-muted); }
+/* A critical result is the one badge that must be impossible to skim past:
+   filled rather than tinted, and bold, so it reads as different in kind from
+   a merely abnormal one even in greyscale. */
+.badge-compact { padding: 0 4px; font-size: 0.68rem; letter-spacing: 0.04em; }
+.badge-critical {
+    background: var(--danger); color: #fff; font-weight: 700;
+    letter-spacing: 0.02em;
+}
 
 .mono { font-family: var(--mono); font-size: 12px; }
 .muted { color: var(--text-muted); }

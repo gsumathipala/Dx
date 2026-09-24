@@ -1,3 +1,19 @@
+"""Forms for configuring the clinical decision engine.
+
+These screens edit the rules that decide what a result *means*, so the
+validation here is doing real work rather than tidying input. Three patterns
+recur:
+
+* **Denormalised codes are filled in on save.** Several models keep a
+  ``test_code`` alongside the foreign key so historic records still read
+  correctly after a catalogue entry is renamed. The form is the only place
+  that writes it, so it cannot drift.
+* **Impossible configurations are refused, not warned about.** An inverted
+  bound or a self-referential reflex silently never fires, or always does, and
+  neither is visible from the screen afterwards.
+* **The message says what to do.** Somebody configuring a delta rule at the end
+  of a shift should not have to reason about why the form refused.
+"""
 from __future__ import annotations
 
 from django import forms
@@ -18,11 +34,15 @@ class DeltaCheckRuleForm(forms.ModelForm):
         if cleaned.get("test"):
             cleaned["test_code"] = cleaned["test"].code
         threshold = cleaned.get("threshold")
+        # Zero would flag every result including an identical one, and a
+        # negative threshold can never be exceeded, so the rule would be dead.
         if threshold is not None and threshold <= 0:
             raise forms.ValidationError("The threshold must be greater than zero.")
         return cleaned
 
     def save(self, commit=True):
+        # test_code is denormalised so the rule still reads correctly after the
+        # catalogue entry is renamed; this form is the only writer.
         rule = super().save(commit=False)
         rule.test_code = rule.test.code
         if commit:
@@ -71,6 +91,9 @@ class DemographicRangeForm(forms.ModelForm):
         if low is not None and high is not None and low > high:
             raise forms.ValidationError("The lower reference bound cannot exceed the upper bound.")
 
+        # A critical limit inside the reference interval means every normal
+        # result is also critical. The engine would do exactly as told and the
+        # laboratory would telephone the ward about healthy patients.
         low_critical, high_critical = cleaned.get("low_critical"), cleaned.get("high_critical")
         if low_critical is not None and low is not None and low_critical > low:
             raise forms.ValidationError(

@@ -1,3 +1,10 @@
+"""Forms for the operational configuration screens.
+
+Mostly thin wrappers over their models. The ones with real logic are the
+turnaround thresholds, where the warning time must sit between the target and
+the breach or the escalation never fires, and storage assignment, which must
+not place two specimens in one position.
+"""
 from __future__ import annotations
 
 from django import forms

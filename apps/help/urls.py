@@ -1,3 +1,4 @@
+"""URL routes for the in-application help library."""
 from django.urls import path
 
 from apps.help import views

@@ -1,3 +1,4 @@
+"""Histopathology and microbiology."""
 from django.apps import AppConfig
 
 
